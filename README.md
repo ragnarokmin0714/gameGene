@@ -1,4 +1,7 @@
-<img src="assets/gamegene.svg" width="88" align="right" alt="GameGene logo" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/gamegene-dark.svg" />
+  <img src="assets/gamegene.svg" width="88" align="right" alt="GameGene logo" />
+</picture>
 
 # GameGene
 
