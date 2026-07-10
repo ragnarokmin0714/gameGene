@@ -3,6 +3,7 @@
 
 use eframe::egui::{self, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
+use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
@@ -325,7 +326,7 @@ impl GameGeneApp {
                     if self.source.is_some() {
                         ui.colored_label(
                             egui::Color32::from_rgb(52, 199, 89),
-                            format!("● {}", self.attached_name),
+                            format!("• {}", self.attached_name),
                         );
                     } else {
                         ui.label(RichText::new(tr.not_attached).weak());
@@ -572,6 +573,7 @@ impl GameGeneApp {
                 let src = self.source.as_deref();
                 let mut remove_id = None;
                 let mut apply_id = None;
+                let mut pin_id = None;
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for entry in &mut self.table.entries {
@@ -584,6 +586,20 @@ impl GameGeneApp {
                                 ui.checkbox(&mut entry.frozen, tr.freeze);
                                 if ui.small_button("✕").clicked() {
                                     remove_id = Some(entry.id);
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                // A pointer/module locator already survives restarts.
+                                let persistent =
+                                    !matches!(entry.locator, gamegene_core::Locator::Absolute(_));
+                                if persistent {
+                                    ui.label(RichText::new(tr.pin).weak());
+                                } else if ui
+                                    .small_button(tr.pin)
+                                    .on_hover_text(tr.pin_hint)
+                                    .clicked()
+                                {
+                                    pin_id = Some(entry.id);
                                 }
                             });
                             ui.horizontal(|ui| {
@@ -628,7 +644,39 @@ impl GameGeneApp {
                         }
                     }
                 }
+                if let Some(id) = pin_id {
+                    self.pin_entry(id);
+                }
             });
+    }
+
+    /// Run a pointer scan for a table entry's current address and, if a stable
+    /// pointer path is found, replace its locator so it survives restarts.
+    fn pin_entry(&mut self, id: u64) {
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        let Some(entry) = self.table.get_mut(id) else {
+            return;
+        };
+        let Some(addr) = entry.locator.resolve(src) else {
+            self.status = "Could not resolve the entry's address.".into();
+            return;
+        };
+        self.status = format!("Scanning for a pointer path to {addr:#x}…");
+        match pointer_scan(src, addr, PointerScanOptions::default())
+            .into_iter()
+            .next()
+        {
+            Some(path) => {
+                entry.locator = path;
+                self.status = format!("Pinned {} — now survives restart", entry.label);
+            }
+            None => {
+                self.status = "No pointer path found (try again or keep the raw address)".into()
+            }
+        }
     }
 
     fn save_table(&mut self) {

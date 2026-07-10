@@ -6,7 +6,8 @@
 //! a Linux dev box — the shipping target is Windows.
 
 use super::ProcessInfo;
-use gamegene_core::{MemError, MemoryRegion, MemorySource};
+use gamegene_core::{MemError, MemoryRegion, MemorySource, ModuleInfo};
+use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
@@ -88,6 +89,44 @@ impl MemorySource for LinuxProcess {
             }
         }
         None
+    }
+
+    fn modules(&self) -> Vec<ModuleInfo> {
+        let Ok(maps) = fs::read_to_string(format!("/proc/{}/maps", self.pid)) else {
+            return Vec::new();
+        };
+        // A module spans several mappings; group file-backed ones by path and
+        // take the min start / max end as the image bounds.
+        let mut by_path: HashMap<String, (u64, u64)> = HashMap::new();
+        for line in maps.lines() {
+            let range = line.split_whitespace().next().unwrap_or("");
+            let path = line.split_whitespace().nth(5).unwrap_or("");
+            if !path.starts_with('/') {
+                continue; // only real file-backed images
+            }
+            let Some((s, e)) = range.split_once('-') else {
+                continue;
+            };
+            let (Ok(start), Ok(end)) = (u64::from_str_radix(s, 16), u64::from_str_radix(e, 16))
+            else {
+                continue;
+            };
+            let entry = by_path.entry(path.to_string()).or_insert((start, end));
+            entry.0 = entry.0.min(start);
+            entry.1 = entry.1.max(end);
+        }
+        by_path
+            .into_iter()
+            .map(|(path, (base, end))| ModuleInfo {
+                name: Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&path)
+                    .to_string(),
+                base,
+                size: end - base,
+            })
+            .collect()
     }
 }
 

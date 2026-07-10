@@ -8,13 +8,15 @@
 pub mod constants;
 pub mod error;
 pub mod mock;
+pub mod pointer;
 pub mod process;
 pub mod scan;
 pub mod table;
 pub mod value;
 
 pub use error::{MemError, ScanError, TableError};
-pub use process::{MemoryRegion, MemorySource};
+pub use pointer::{pointer_scan, PointerScanOptions};
+pub use process::{MemoryRegion, MemorySource, ModuleInfo};
 pub use scan::{Compare, Match, ScanSession};
 pub use table::{CheatTable, Locator, TableEntry};
 pub use value::{ScanValue, ValueType};

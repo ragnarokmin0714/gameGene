@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format is based on
 follows [Semantic Versioning](https://semver.org/) (0.x: minor bumps may include
 breaking changes).
 
+## [0.3.0]
+
+### Added
+- **Pointer scan.** "Pin" a cheat-table entry to search for a pointer path from
+  a static module base to its address; the locator is rewritten as that pointer
+  chain so the entry keeps working after the game restarts.
+
+### Changed
+- Faster, lighter scanning: `next_scan` on a candidate list now coalesces nearby
+  addresses into block reads instead of one syscall per address, and an "unknown
+  initial value" first scan stores a compact byte snapshot instead of a struct
+  per address (no longer blows up to many GB on large targets).
+
+### Fixed
+- Status/attachment labels no longer show a "tofu" box for the leading check
+  mark; indicators now rely on colour plus a widely-supported bullet.
+
 ## [0.2.1]
 
 ### Fixed

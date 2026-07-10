@@ -129,9 +129,13 @@ A locator says *how to find the address again*:
   it re-derives the address by following pointers, surviving restarts even when
   the value's allocation moves.
 
-So the "avoid rescanning" workflow is: find it once → save it as a
-module-offset or pointer entry → next session, **Load** the table and **Apply**
-or **Freeze** without scanning again.
+Click **Pin** on a table entry to run a *pointer scan*: GameGene searches for a
+pointer path from a static module base to the entry's current address and, if it
+finds one, rewrites the locator as that pointer chain automatically — turning a
+one-session absolute address into one that survives restarts.
+
+So the "avoid rescanning" workflow is: find it once → **Pin** it → next session,
+**Load** the table and **Apply** or **Freeze** without scanning again.
 
 ---
 

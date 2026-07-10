@@ -8,7 +8,7 @@
 //! Linux CI here — verify it on the target machine.
 
 use super::ProcessInfo;
-use gamegene_core::{MemError, MemoryRegion, MemorySource};
+use gamegene_core::{MemError, MemoryRegion, MemorySource, ModuleInfo};
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -220,6 +220,35 @@ impl MemorySource for WindowsProcess {
             let _ = CloseHandle(snapshot);
             found
         }
+    }
+
+    fn modules(&self) -> Vec<ModuleInfo> {
+        let mut out = Vec::new();
+        unsafe {
+            let Ok(snapshot) =
+                CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, self.pid)
+            else {
+                return out;
+            };
+            let mut entry = MODULEENTRY32W {
+                dwSize: std::mem::size_of::<MODULEENTRY32W>() as u32,
+                ..Default::default()
+            };
+            if Module32FirstW(snapshot, &mut entry).is_ok() {
+                loop {
+                    out.push(ModuleInfo {
+                        name: wide_to_string(&entry.szModule),
+                        base: entry.modBaseAddr as u64,
+                        size: entry.modBaseSize as u64,
+                    });
+                    if Module32NextW(snapshot, &mut entry).is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = CloseHandle(snapshot);
+        }
+        out
     }
 }
 

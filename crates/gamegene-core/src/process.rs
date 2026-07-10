@@ -18,6 +18,22 @@ pub struct MemoryRegion {
     pub writable: bool,
 }
 
+/// A loaded module (executable / library) image in the target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleInfo {
+    pub name: String,
+    pub base: u64,
+    pub size: u64,
+}
+
+impl ModuleInfo {
+    /// Whether `addr` falls within this module's image — i.e. is a "static"
+    /// address that keeps a stable offset from the module base across restarts.
+    pub fn contains(&self, addr: u64) -> bool {
+        addr >= self.base && addr < self.base.saturating_add(self.size)
+    }
+}
+
 /// Read/write access to another process's memory, plus module lookup.
 ///
 /// Implementations must be safe to call from the scan engine with `&self`;
@@ -41,5 +57,11 @@ pub trait MemorySource: Send + Sync {
     /// after the game restarts and ASLR moves everything.
     fn module_base(&self, _name: &str) -> Option<u64> {
         None
+    }
+
+    /// All loaded modules, used by the pointer scanner to recognize static
+    /// anchor addresses. Defaults to empty (no module info available).
+    fn modules(&self) -> Vec<ModuleInfo> {
+        Vec::new()
     }
 }

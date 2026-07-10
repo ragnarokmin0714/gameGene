@@ -5,7 +5,7 @@
 //! scan, pointer-chain resolution, freezing — with no real process involved.
 
 use crate::error::MemError;
-use crate::process::{MemoryRegion, MemorySource};
+use crate::process::{MemoryRegion, MemorySource, ModuleInfo};
 use std::sync::RwLock;
 
 /// A fake process whose memory is a flat buffer starting at `base`.
@@ -13,7 +13,7 @@ pub struct MockMemory {
     base: u64,
     data: RwLock<Vec<u8>>,
     writable: bool,
-    modules: Vec<(String, u64)>,
+    modules: Vec<ModuleInfo>,
 }
 
 impl MockMemory {
@@ -27,9 +27,27 @@ impl MockMemory {
         }
     }
 
-    /// Register a named module at a base address (for locator resolution).
+    /// Register a named module. The module spans the whole mapped buffer, which
+    /// is enough for exercising locator resolution and pointer scanning.
     pub fn with_module(mut self, name: &str, base: u64) -> Self {
-        self.modules.push((name.to_string(), base));
+        let size = self.data.read().unwrap().len() as u64;
+        self.modules.push(ModuleInfo {
+            name: name.to_string(),
+            base,
+            size,
+        });
+        self
+    }
+
+    /// Register a module covering only `[base, base + size)`, so addresses
+    /// outside it count as non-static (needed to exercise multi-hop pointer
+    /// chains, where intermediate pointers live in "heap" memory).
+    pub fn with_module_range(mut self, name: &str, base: u64, size: u64) -> Self {
+        self.modules.push(ModuleInfo {
+            name: name.to_string(),
+            base,
+            size,
+        });
         self
     }
 
@@ -91,9 +109,10 @@ impl MemorySource for MockMemory {
     }
 
     fn module_base(&self, name: &str) -> Option<u64> {
-        self.modules
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, b)| *b)
+        self.modules.iter().find(|m| m.name == name).map(|m| m.base)
+    }
+
+    fn modules(&self) -> Vec<ModuleInfo> {
+        self.modules.clone()
     }
 }

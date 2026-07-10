@@ -62,6 +62,8 @@ pub struct Tr {
     pub now_prefix: &'static str,
     pub set_hint: &'static str,
     pub apply: &'static str,
+    pub pin: &'static str,
+    pub pin_hint: &'static str,
 
     pub m_exact: &'static str,
     pub m_greater: &'static str,
@@ -79,7 +81,7 @@ static EN: Tr = Tr {
     theme_system: "System",
     theme_light: "Light",
     theme_dark: "Dark",
-    not_attached: "● not attached",
+    not_attached: "• not attached",
 
     processes: "Processes",
     refresh: "Refresh",
@@ -88,8 +90,8 @@ static EN: Tr = Tr {
     detach: "Detach",
     detect_game: "🎯 Detect game",
     detect_hint: "Lock onto the game window currently in the foreground",
-    attached_prefix: "✓ Attached: ",
-    attach_failed: "⚠ Attach failed — run as Administrator (see status bar)",
+    attached_prefix: "Attached: ",
+    attach_failed: "Attach failed — run as Administrator (see status bar)",
     proc_hint: "Click to select · double-click or Attach to connect",
     uptime_prefix: "⏱ ",
 
@@ -112,6 +114,8 @@ static EN: Tr = Tr {
     now_prefix: "now: ",
     set_hint: "set",
     apply: "Apply",
+    pin: "Pin",
+    pin_hint: "Find a pointer path so this entry still works after the game restarts",
 
     m_exact: "Exact value",
     m_greater: "Greater than",
@@ -129,7 +133,7 @@ static ZH: Tr = Tr {
     theme_system: "跟隨系統",
     theme_light: "淺色",
     theme_dark: "深色",
-    not_attached: "● 未連接",
+    not_attached: "• 未連接",
 
     processes: "處理程序",
     refresh: "重新整理",
@@ -138,8 +142,8 @@ static ZH: Tr = Tr {
     detach: "中斷",
     detect_game: "🎯 偵測遊戲",
     detect_hint: "鎖定目前在前景（畫面上）的遊戲視窗",
-    attached_prefix: "✓ 已連接：",
-    attach_failed: "⚠ 連接失敗 — 請以系統管理員身分執行（見下方狀態列）",
+    attached_prefix: "已連接：",
+    attach_failed: "連接失敗 — 請以系統管理員身分執行（見下方狀態列）",
     proc_hint: "點擊選取 · 雙擊或按「連接」以附加",
     uptime_prefix: "⏱ ",
 
@@ -162,6 +166,8 @@ static ZH: Tr = Tr {
     now_prefix: "目前：",
     set_hint: "設定值",
     apply: "套用",
+    pin: "固定",
+    pin_hint: "尋找指標路徑，讓此項目在遊戲重開後仍然有效",
 
     m_exact: "精確值",
     m_greater: "大於",
