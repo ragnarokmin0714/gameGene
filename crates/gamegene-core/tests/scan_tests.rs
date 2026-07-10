@@ -128,3 +128,74 @@ fn float_scan_works() {
         vec![BASE]
     );
 }
+
+#[test]
+fn unknown_first_scan_snapshots_then_narrows_on_change() {
+    // 64 bytes = 16 aligned i32 slots, all initially zero.
+    let mem = MockMemory::new(BASE, 64);
+    let mut session =
+        ScanSession::first_scan(&mem, ValueType::I32, Compare::Unknown).expect("unknown scan");
+    // Every slot is a candidate; nothing is materialized per-address yet.
+    assert_eq!(session.len(), 16);
+
+    // Change exactly one slot, then narrow by "changed".
+    mem.poke(BASE + 8, &4321i32.to_le_bytes());
+    session
+        .next_scan(&mem, Compare::Changed)
+        .expect("next scan");
+
+    assert_eq!(
+        session.matches(),
+        vec![gamegene_core::scan::Match {
+            address: BASE + 8,
+            previous: ScanValue::I32(4321),
+        }]
+    );
+}
+
+#[test]
+fn unknown_scan_then_absolute_next_scan() {
+    let mem = MockMemory::new(BASE, 32);
+    mem.poke(BASE + 12, &777i32.to_le_bytes());
+    let mut session = ScanSession::first_scan(&mem, ValueType::I32, Compare::Unknown).unwrap();
+
+    // An absolute predicate works against a snapshot too.
+    session
+        .next_scan(&mem, Compare::Exact(ScanValue::I32(777)))
+        .unwrap();
+    assert_eq!(
+        session
+            .matches()
+            .iter()
+            .map(|m| m.address)
+            .collect::<Vec<_>>(),
+        vec![BASE + 12]
+    );
+}
+
+#[test]
+fn block_coalesced_next_scan_narrows_dense_candidates() {
+    // 16 dense i32 slots all set to 100; a first Exact scan matches all of them,
+    // so next_scan must read them via coalesced blocks and narrow correctly.
+    let mem = MockMemory::new(BASE, 64);
+    for k in 0..16u64 {
+        mem.poke(BASE + k * 4, &100i32.to_le_bytes());
+    }
+    let mut session =
+        ScanSession::first_scan(&mem, ValueType::I32, Compare::Exact(ScanValue::I32(100))).unwrap();
+    assert_eq!(session.len(), 16);
+
+    // Change two of them; "changed" should keep exactly those two.
+    mem.poke(BASE + 4, &101i32.to_le_bytes());
+    mem.poke(BASE + 40, &101i32.to_le_bytes());
+    session.next_scan(&mem, Compare::Changed).unwrap();
+
+    assert_eq!(
+        session
+            .matches()
+            .iter()
+            .map(|m| m.address)
+            .collect::<Vec<_>>(),
+        vec![BASE + 4, BASE + 40]
+    );
+}

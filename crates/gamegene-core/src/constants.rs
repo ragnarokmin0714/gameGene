@@ -20,6 +20,12 @@ pub const TABLE_FILE_EXT: &str = "ggtable";
 /// but more transient memory. 4 MiB is a good balance for desktop games.
 pub const SCAN_CHUNK_SIZE: usize = 4 * 1024 * 1024;
 
+/// When re-scanning a candidate list, adjacent candidates whose addresses fall
+/// within this many bytes are coalesced into a single read instead of one read
+/// syscall per address. Turns a dense next-scan from millions of tiny reads
+/// into a handful of block reads.
+pub const NEXT_SCAN_BLOCK: usize = 64 * 1024;
+
 /// Upper bound on results the UI will render at once. The scan engine keeps all
 /// matches; this only caps what the table view materializes so a huge "unknown
 /// initial value" scan cannot freeze the UI.
