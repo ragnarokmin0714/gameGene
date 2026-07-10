@@ -37,6 +37,19 @@ pub fn attach(pid: u32) -> Result<Box<dyn MemorySource>, MemError> {
     backend::attach(pid)
 }
 
+/// The process owning the foreground (focused) window, if it can be
+/// determined. Used to "lock onto" the game the user is currently playing.
+/// Only implemented on Windows; elsewhere returns `None`.
+#[cfg(target_os = "windows")]
+pub fn foreground_process() -> Option<ProcessInfo> {
+    backend::foreground_process()
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn foreground_process() -> Option<ProcessInfo> {
+    None
+}
+
 /// Fallback for unsupported platforms (e.g. macOS): nothing to attach to.
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub fn list_processes() -> Vec<ProcessInfo> {

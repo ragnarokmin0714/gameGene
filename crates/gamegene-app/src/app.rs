@@ -7,7 +7,7 @@ use gamegene_core::scan::{Compare, ScanSession};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
 use gamegene_core::MemorySource;
-use gamegene_platform::{attach, list_processes, ProcessInfo, BACKEND_NAME};
+use gamegene_platform::{attach, foreground_process, list_processes, ProcessInfo, BACKEND_NAME};
 use std::time::{Duration, Instant};
 
 use crate::i18n::{self, Lang};
@@ -87,6 +87,8 @@ pub struct GameGeneApp {
     source: Option<Box<dyn MemorySource>>,
     attached_name: String,
     selected_pid: Option<u32>,
+    /// Last foreground process that wasn't ourselves — the "detect game" target.
+    last_foreground: Option<ProcessInfo>,
 
     // Scan controls
     value_type: ValueType,
@@ -105,6 +107,7 @@ pub struct GameGeneApp {
     lang: Lang,
     status: String,
     last_freeze: Instant,
+    started: Instant,
 }
 
 impl GameGeneApp {
@@ -117,6 +120,7 @@ impl GameGeneApp {
             source: None,
             attached_name: String::new(),
             selected_pid: None,
+            last_foreground: None,
             value_type: ValueType::I32,
             mode: ScanMode::Exact,
             value_text: String::new(),
@@ -129,6 +133,7 @@ impl GameGeneApp {
             lang: Lang::En,
             status: format!("Ready — {BACKEND_NAME}"),
             last_freeze: Instant::now(),
+            started: Instant::now(),
         }
     }
 
@@ -241,6 +246,14 @@ impl eframe::App for GameGeneApp {
             self.applied_dark = Some(dark);
         }
 
+        // Track the foreground game so "Detect game" can lock onto it. Ignore
+        // our own window, which is foreground whenever the user clicks here.
+        if let Some(fg) = foreground_process() {
+            if fg.pid != std::process::id() && fg.pid != 0 {
+                self.last_foreground = Some(fg);
+            }
+        }
+
         // Enforce frozen entries on a fixed cadence.
         if let Some(src) = self.source.as_deref() {
             if self.table.entries.iter().any(|e| e.frozen)
@@ -249,8 +262,10 @@ impl eframe::App for GameGeneApp {
                 self.table.tick_frozen(src);
                 self.last_freeze = Instant::now();
             }
-            ctx.request_repaint_after(Duration::from_millis(FREEZE_INTERVAL_MS));
         }
+        // Repaint at least once a second so the running-time clock ticks and
+        // foreground detection stays current even when idle.
+        ctx.request_repaint_after(Duration::from_millis(FREEZE_INTERVAL_MS.min(1000)));
 
         self.top_bar(ctx);
         self.process_panel(ctx);
@@ -268,6 +283,14 @@ impl GameGeneApp {
             ui.horizontal(|ui| {
                 ui.heading(APP_NAME);
                 ui.label(RichText::new(tr.tagline).weak());
+                ui.label(
+                    RichText::new(format!(
+                        "{}{}",
+                        tr.uptime_prefix,
+                        fmt_hms(self.started.elapsed())
+                    ))
+                    .weak(),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::ComboBox::from_id_source("lang")
                         .selected_text(match self.lang {
@@ -355,6 +378,21 @@ impl GameGeneApp {
                         self.status = "Detached".into();
                     }
                 });
+
+                // Lock onto whatever game is currently in the foreground.
+                if ui
+                    .add_enabled(
+                        self.last_foreground.is_some(),
+                        egui::Button::new(tr.detect_game),
+                    )
+                    .on_hover_text(tr.detect_hint)
+                    .clicked()
+                {
+                    if let Some(fg) = self.last_foreground.clone() {
+                        self.selected_pid = Some(fg.pid);
+                        self.attach_to(fg.pid, fg.name);
+                    }
+                }
 
                 // Prominent attached / error state so the result is never missed.
                 if self.source.is_some() {
@@ -589,8 +627,16 @@ impl GameGeneApp {
 
     fn save_table(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("GameGene table", &[gamegene_core::constants::TABLE_FILE_EXT])
-            .set_file_name(format!("table.{}", gamegene_core::constants::TABLE_FILE_EXT))
+            .add_filter(
+                "GameGene table",
+                &[gamegene_core::constants::TABLE_FILE_EXT],
+            )
+            // Default to the app name; the .ggtable extension already reads as
+            // "table", so no redundant "table" suffix is added.
+            .set_file_name(format!(
+                "{APP_NAME}.{}",
+                gamegene_core::constants::TABLE_FILE_EXT
+            ))
             .save_file()
         {
             match self.table.save(&path) {
@@ -602,7 +648,10 @@ impl GameGeneApp {
 
     fn load_table(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("GameGene table", &[gamegene_core::constants::TABLE_FILE_EXT])
+            .add_filter(
+                "GameGene table",
+                &[gamegene_core::constants::TABLE_FILE_EXT],
+            )
             .pick_file()
         {
             match CheatTable::load(&path) {
@@ -614,6 +663,12 @@ impl GameGeneApp {
             }
         }
     }
+}
+
+/// Format a duration as `HH:MM:SS` for the running-time display.
+fn fmt_hms(d: Duration) -> String {
+    let s = d.as_secs();
+    format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
 }
 
 /// Read one typed value from a source, or `None` if unreadable.

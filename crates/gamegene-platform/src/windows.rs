@@ -58,6 +58,27 @@ pub fn list_processes() -> Vec<ProcessInfo> {
     out
 }
 
+pub fn foreground_process() -> Option<ProcessInfo> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return None;
+        }
+        let name = list_processes()
+            .into_iter()
+            .find(|p| p.pid == pid)
+            .map(|p| p.name)
+            .unwrap_or_default();
+        Some(ProcessInfo { pid, name })
+    }
+}
+
 pub fn attach(pid: u32) -> Result<Box<dyn MemorySource>, MemError> {
     let handle = unsafe {
         OpenProcess(
