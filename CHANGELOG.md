@@ -14,6 +14,8 @@ breaking changes).
 - **Find bytes / text.** A locate tool: search for an array of bytes (with `??`
   wildcards) or text (UTF-8 or UTF-16), e.g. an item's name, then add a found
   address to the cheat table and edit it.
+- Brand icon (radar + gene-helix motif) as the window/taskbar icon and README
+  logo, generated from `assets/make_icon.py`.
 
 ### Changed
 - Faster, lighter scanning: `next_scan` on a candidate list now coalesces nearby

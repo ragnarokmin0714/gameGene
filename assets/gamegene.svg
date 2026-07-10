@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<rect x="8" y="8" width="240" height="240" rx="52" fill="rgb(14,42,71)"/>
+<circle cx="128.0" cy="128.0" r="46" fill="none" stroke="rgba(74,144,217,0.59)" stroke-width="3"/>
+<circle cx="128.0" cy="128.0" r="80" fill="none" stroke="rgba(74,144,217,0.59)" stroke-width="3"/>
+<circle cx="128.0" cy="128.0" r="113" fill="none" stroke="rgba(74,144,217,0.59)" stroke-width="3"/>
+<line x1="128.0" y1="128.0" x2="128.0" y2="15.0" stroke="rgba(92,170,236,0.86)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="128.0" cy="128.0" r="5" fill="rgb(130,195,255)"/>
+<line x1="152.0" y1="58.6" x2="104.0" y2="58.6" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="109.8" y1="83.8" x2="146.2" y2="83.8" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="99.7" y1="109.1" x2="156.3" y2="109.1" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="139.3" y1="134.3" x2="116.7" y2="134.3" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="159.1" y1="159.5" x2="96.9" y2="159.5" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="124.1" y1="184.8" x2="131.9" y2="184.8" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<line x1="96.0" y1="210.0" x2="160.0" y2="210.0" stroke="rgba(150,200,245,0.59)" stroke-width="2.5"/>
+<circle cx="96.0" cy="46.0" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="160.0" cy="46.0" r="6" fill="rgb(245,250,255)"/>
+<circle cx="104.0" cy="58.6" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="152.0" cy="58.6" r="6" fill="rgb(245,250,255)"/>
+<circle cx="124.1" cy="71.2" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="131.9" cy="71.2" r="6" fill="rgb(245,250,255)"/>
+<circle cx="146.2" cy="83.8" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="109.8" cy="83.8" r="6" fill="rgb(245,250,255)"/>
+<circle cx="159.1" cy="96.5" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="96.9" cy="96.5" r="6" fill="rgb(245,250,255)"/>
+<circle cx="99.7" cy="109.1" r="4.5" fill="rgb(245,250,255)"/>
+<circle cx="156.3" cy="109.1" r="6" fill="rgb(120,175,235)"/>
+<circle cx="116.7" cy="121.7" r="4.5" fill="rgb(245,250,255)"/>
+<circle cx="139.3" cy="121.7" r="6" fill="rgb(120,175,235)"/>
+<circle cx="139.3" cy="134.3" r="4.5" fill="rgb(245,250,255)"/>
+<circle cx="116.7" cy="134.3" r="6" fill="rgb(120,175,235)"/>
+<circle cx="156.3" cy="146.9" r="4.5" fill="rgb(245,250,255)"/>
+<circle cx="99.7" cy="146.9" r="6" fill="rgb(120,175,235)"/>
+<circle cx="96.9" cy="159.5" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="159.1" cy="159.5" r="6" fill="rgb(245,250,255)"/>
+<circle cx="109.8" cy="172.2" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="146.2" cy="172.2" r="6" fill="rgb(245,250,255)"/>
+<circle cx="131.9" cy="184.8" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="124.1" cy="184.8" r="6" fill="rgb(245,250,255)"/>
+<circle cx="152.0" cy="197.4" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="104.0" cy="197.4" r="6" fill="rgb(245,250,255)"/>
+<circle cx="160.0" cy="210.0" r="4.5" fill="rgb(120,175,235)"/>
+<circle cx="96.0" cy="210.0" r="6" fill="rgb(245,250,255)"/>
+</svg>

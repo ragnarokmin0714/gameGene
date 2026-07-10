@@ -3,6 +3,7 @@
 
 mod app;
 mod i18n;
+mod icon;
 mod theme;
 
 use eframe::egui;
@@ -13,7 +14,8 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1000.0, 680.0])
             .with_min_inner_size([780.0, 520.0])
-            .with_title(APP_NAME),
+            .with_title(APP_NAME)
+            .with_icon(icon::icon_data()),
         follow_system_theme: true,
         ..Default::default()
     };

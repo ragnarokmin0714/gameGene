@@ -1,3 +1,5 @@
+<img src="assets/gamegene.svg" width="88" align="right" alt="GameGene logo" />
+
 # GameGene
 
 A memory scanner and value editor for **single-player games** — find a value
