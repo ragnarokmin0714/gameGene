@@ -85,6 +85,7 @@ pub struct MemGeneApp {
     filter: String,
     source: Option<Box<dyn MemorySource>>,
     attached_name: String,
+    selected_pid: Option<u32>,
 
     // Scan controls
     value_type: ValueType,
@@ -111,6 +112,7 @@ impl MemGeneApp {
             filter: String::new(),
             source: None,
             attached_name: String::new(),
+            selected_pid: None,
             value_type: ValueType::I32,
             mode: ScanMode::Exact,
             value_text: String::new(),
@@ -179,6 +181,22 @@ impl MemGeneApp {
         match session.next_scan(src, compare) {
             Ok(()) => self.status = format!("Narrowed to {} matches", session.len()),
             Err(e) => self.status = e.to_string(),
+        }
+    }
+
+    fn attach_to(&mut self, pid: u32, name: String) {
+        match attach(pid) {
+            Ok(src) => {
+                self.source = Some(src);
+                self.attached_name = format!("{name} ({pid})");
+                self.session = None;
+                self.status = format!("Attached to {name} (pid {pid})");
+            }
+            Err(e) => {
+                self.source = None;
+                self.attached_name.clear();
+                self.status = format!("Attach failed: {e} — try running as Administrator");
+            }
         }
     }
 
@@ -252,10 +270,13 @@ impl MemGeneApp {
                             ui.selectable_value(&mut self.theme, ThemeChoice::Light, "Light");
                             ui.selectable_value(&mut self.theme, ThemeChoice::Dark, "Dark");
                         });
-                    if let Some(name) =
-                        (!self.attached_name.is_empty()).then_some(&self.attached_name)
-                    {
-                        ui.label(RichText::new(format!("● {name}")).weak());
+                    if self.source.is_some() {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(52, 199, 89),
+                            format!("● {}", self.attached_name),
+                        );
+                    } else {
+                        ui.label(RichText::new("● not attached").weak());
                     }
                 });
             });
@@ -263,7 +284,7 @@ impl MemGeneApp {
         });
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.add_space(2.0);
-            ui.label(RichText::new(&self.status).weak());
+            ui.label(&self.status);
             ui.add_space(2.0);
         });
     }
@@ -271,7 +292,7 @@ impl MemGeneApp {
     fn process_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("processes")
             .resizable(true)
-            .default_width(240.0)
+            .default_width(260.0)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -281,33 +302,76 @@ impl MemGeneApp {
                     }
                 });
                 ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter…"));
+
+                // Attach / detach controls for the selected process.
+                ui.horizontal(|ui| {
+                    let can_attach = self.selected_pid.is_some();
+                    if ui
+                        .add_enabled(can_attach, egui::Button::new("Attach"))
+                        .clicked()
+                    {
+                        if let Some(pid) = self.selected_pid {
+                            let name = self
+                                .processes
+                                .iter()
+                                .find(|p| p.pid == pid)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_default();
+                            self.attach_to(pid, name);
+                        }
+                    }
+                    if self.source.is_some() && ui.small_button("Detach").clicked() {
+                        self.source = None;
+                        self.attached_name.clear();
+                        self.session = None;
+                        self.status = "Detached".into();
+                    }
+                });
+
+                // Prominent attached / error state so the result is never missed.
+                if self.source.is_some() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(52, 199, 89),
+                        format!("✓ Attached: {}", self.attached_name),
+                    );
+                } else if self.status.starts_with("Attach failed") {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 69, 58),
+                        "⚠ Attach failed — run as Administrator (see status bar)",
+                    );
+                }
+
                 ui.separator();
+                ui.label(
+                    RichText::new("Click to select · double-click or Attach to connect").weak(),
+                );
 
                 let filter = self.filter.to_lowercase();
-                let mut attach_pid = None;
+                let mut new_selected = None;
+                let mut attach_now = None;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for p in self
                         .processes
                         .iter()
                         .filter(|p| filter.is_empty() || p.name.to_lowercase().contains(&filter))
                     {
-                        let label = format!("{}  ·  {}", p.name, p.pid);
-                        if ui.selectable_label(false, label).clicked() {
-                            attach_pid = Some((p.pid, p.name.clone()));
+                        let selected = self.selected_pid == Some(p.pid);
+                        let resp =
+                            ui.selectable_label(selected, format!("{}  ·  {}", p.name, p.pid));
+                        if resp.clicked() {
+                            new_selected = Some(p.pid);
+                        }
+                        if resp.double_clicked() {
+                            attach_now = Some((p.pid, p.name.clone()));
                         }
                     }
                 });
-
-                if let Some((pid, name)) = attach_pid {
-                    match attach(pid) {
-                        Ok(src) => {
-                            self.source = Some(src);
-                            self.attached_name = format!("{name} ({pid})");
-                            self.session = None;
-                            self.status = format!("Attached to {name} (pid {pid})");
-                        }
-                        Err(e) => self.status = format!("Attach failed: {e}"),
-                    }
+                if let Some(pid) = new_selected {
+                    self.selected_pid = Some(pid);
+                }
+                if let Some((pid, name)) = attach_now {
+                    self.selected_pid = Some(pid);
+                    self.attach_to(pid, name);
                 }
             });
     }
