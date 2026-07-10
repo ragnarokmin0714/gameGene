@@ -65,6 +65,13 @@ pub struct Tr {
     pub pin: &'static str,
     pub pin_hint: &'static str,
 
+    pub find_title: &'static str,
+    pub find_search: &'static str,
+    pub find_hint: &'static str,
+    pub find_text: &'static str,
+    pub find_utf16: &'static str,
+    pub find_aob: &'static str,
+
     pub m_exact: &'static str,
     pub m_greater: &'static str,
     pub m_less: &'static str,
@@ -104,7 +111,7 @@ static EN: Tr = Tr {
     matches: "matches",
     results: "Results",
     no_scan: "No scan yet.",
-    add_table: "＋ Table",
+    add_table: "+ Table",
 
     cheat_table: "Cheat table",
     save: "Save…",
@@ -116,6 +123,13 @@ static EN: Tr = Tr {
     apply: "Apply",
     pin: "Pin",
     pin_hint: "Find a pointer path so this entry still works after the game restarts",
+
+    find_title: "Find bytes / text",
+    find_search: "Search",
+    find_hint: "text, or hex like 4A ?? 3C 90",
+    find_text: "Text",
+    find_utf16: "Text (UTF-16)",
+    find_aob: "Bytes (hex)",
 
     m_exact: "Exact value",
     m_greater: "Greater than",
@@ -156,7 +170,7 @@ static ZH: Tr = Tr {
     matches: "筆符合",
     results: "結果",
     no_scan: "尚未掃描。",
-    add_table: "＋ 加入表",
+    add_table: "+ 加入表",
 
     cheat_table: "修改表",
     save: "儲存…",
@@ -168,6 +182,13 @@ static ZH: Tr = Tr {
     apply: "套用",
     pin: "固定",
     pin_hint: "尋找指標路徑，讓此項目在遊戲重開後仍然有效",
+
+    find_title: "搜尋位元組 / 文字",
+    find_search: "搜尋",
+    find_hint: "文字，或十六進位如 4A ?? 3C 90",
+    find_text: "文字",
+    find_utf16: "文字 (UTF-16)",
+    find_aob: "位元組 (hex)",
 
     m_exact: "精確值",
     m_greater: "大於",

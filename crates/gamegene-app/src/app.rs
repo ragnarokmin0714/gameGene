@@ -3,6 +3,7 @@
 
 use eframe::egui::{self, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
+use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
@@ -81,6 +82,14 @@ enum ThemeChoice {
     Dark,
 }
 
+/// How the "Find" box interprets its query.
+#[derive(Clone, Copy, PartialEq)]
+enum FindMode {
+    Text,
+    Utf16,
+    Aob,
+}
+
 pub struct GameGeneApp {
     // Attachment
     processes: Vec<ProcessInfo>,
@@ -101,6 +110,11 @@ pub struct GameGeneApp {
     // Cheat table
     table: CheatTable,
     entry_counter: u32,
+
+    // Find (byte / text search)
+    find_query: String,
+    find_mode: FindMode,
+    find_results: Vec<u64>,
 
     // Chrome
     theme: ThemeChoice,
@@ -129,6 +143,9 @@ impl GameGeneApp {
             session: None,
             table: CheatTable::new(),
             entry_counter: 0,
+            find_query: String::new(),
+            find_mode: FindMode::Text,
+            find_results: Vec::new(),
             theme: ThemeChoice::System,
             applied_dark: None,
             lang: Lang::En,
@@ -213,6 +230,31 @@ impl GameGeneApp {
                 self.status = format!("Attach failed: {e} — try running as Administrator");
             }
         }
+    }
+
+    fn do_find(&mut self) {
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        let query = self.find_query.trim();
+        if query.is_empty() {
+            return;
+        }
+        let pattern = match self.find_mode {
+            FindMode::Text => text_pattern(query, TextEncoding::Utf8),
+            FindMode::Utf16 => text_pattern(query, TextEncoding::Utf16Le),
+            FindMode::Aob => match parse_aob(query) {
+                Ok(p) => p,
+                Err(e) => {
+                    self.status = format!("Bad pattern: {e}");
+                    return;
+                }
+            },
+        };
+        self.find_results =
+            find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
+        self.status = format!("Found {} match(es)", self.find_results.len());
     }
 
     fn add_to_table(&mut self, address: u64) {
@@ -513,6 +555,62 @@ impl GameGeneApp {
                 }
             });
 
+            // Find bytes / text — a locate tool (collapsed by default).
+            let mut do_find = false;
+            let mut find_add = None;
+            egui::CollapsingHeader::new(tr.find_title).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    egui::ComboBox::from_id_source("findmode")
+                        .selected_text(match self.find_mode {
+                            FindMode::Text => tr.find_text,
+                            FindMode::Utf16 => tr.find_utf16,
+                            FindMode::Aob => tr.find_aob,
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.find_mode, FindMode::Text, tr.find_text);
+                            ui.selectable_value(
+                                &mut self.find_mode,
+                                FindMode::Utf16,
+                                tr.find_utf16,
+                            );
+                            ui.selectable_value(&mut self.find_mode, FindMode::Aob, tr.find_aob);
+                        });
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.find_query)
+                            .desired_width(180.0)
+                            .hint_text(tr.find_hint),
+                    );
+                    let entered =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if ui.button(tr.find_search).clicked() || entered {
+                        do_find = true;
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .id_source("find_results")
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("find_grid")
+                            .num_columns(2)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for &addr in &self.find_results {
+                                    ui.monospace(format!("{addr:#014x}"));
+                                    if ui.small_button(tr.add_table).clicked() {
+                                        find_add = Some(addr);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+            if do_find {
+                self.do_find();
+            }
+            if let Some(addr) = find_add {
+                self.add_to_table(addr);
+            }
+
             ui.separator();
             ui.strong(tr.results);
 
@@ -584,7 +682,7 @@ impl GameGeneApp {
                                         .desired_width(120.0),
                                 );
                                 ui.checkbox(&mut entry.frozen, tr.freeze);
-                                if ui.small_button("✕").clicked() {
+                                if ui.small_button("×").clicked() {
                                     remove_id = Some(entry.id);
                                 }
                             });
@@ -610,7 +708,7 @@ impl GameGeneApp {
                                 ui.label(
                                     RichText::new(format!("{}{current}", tr.now_prefix)).weak(),
                                 );
-                                ui.label("→");
+                                ui.label("->");
                                 let mut txt =
                                     entry.desired.map(|v| v.display()).unwrap_or_default();
                                 if ui

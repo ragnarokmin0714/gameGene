@@ -11,6 +11,9 @@ breaking changes).
 - **Pointer scan.** "Pin" a cheat-table entry to search for a pointer path from
   a static module base to its address; the locator is rewritten as that pointer
   chain so the entry keeps working after the game restarts.
+- **Find bytes / text.** A locate tool: search for an array of bytes (with `??`
+  wildcards) or text (UTF-8 or UTF-16), e.g. an item's name, then add a found
+  address to the cheat table and edit it.
 
 ### Changed
 - Faster, lighter scanning: `next_scan` on a candidate list now coalesces nearby
@@ -19,8 +22,9 @@ breaking changes).
   per address (no longer blows up to many GB on large targets).
 
 ### Fixed
-- Status/attachment labels no longer show a "tofu" box for the leading check
-  mark; indicators now rely on colour plus a widely-supported bullet.
+- UI symbols no longer render as "tofu" boxes: the check mark, remove (×),
+  arrow, and plus glyphs are replaced with widely-supported characters, and
+  attach state is shown with colour plus a plain bullet.
 
 ## [0.2.1]
 

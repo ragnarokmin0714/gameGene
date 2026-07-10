@@ -7,6 +7,7 @@
 
 pub mod constants;
 pub mod error;
+pub mod find;
 pub mod mock;
 pub mod pointer;
 pub mod process;
@@ -15,6 +16,7 @@ pub mod table;
 pub mod value;
 
 pub use error::{MemError, ScanError, TableError};
+pub use find::{find_pattern, parse_aob, text_pattern, Pattern, TextEncoding};
 pub use pointer::{pointer_scan, PointerScanOptions};
 pub use process::{MemoryRegion, MemorySource, ModuleInfo};
 pub use scan::{Compare, Match, ScanSession};
