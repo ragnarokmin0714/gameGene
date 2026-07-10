@@ -247,9 +247,11 @@ impl eframe::App for GameGeneApp {
         }
 
         // Track the foreground game so "Detect game" can lock onto it. Ignore
-        // our own window, which is foreground whenever the user clicks here.
+        // our own window (foreground whenever the user clicks here) and the
+        // Windows shell/system UI (explorer, taskbar, alt-tab, etc.), which
+        // otherwise clobber the real game as the user switches windows.
         if let Some(fg) = foreground_process() {
-            if fg.pid != std::process::id() && fg.pid != 0 {
+            if fg.pid != std::process::id() && fg.pid != 0 && !is_shell_process(&fg.name) {
                 self.last_foreground = Some(fg);
             }
         }
@@ -392,6 +394,10 @@ impl GameGeneApp {
                         self.selected_pid = Some(fg.pid);
                         self.attach_to(fg.pid, fg.name);
                     }
+                }
+                // Show what "Detect game" would grab, so the target is visible.
+                if let Some(fg) = &self.last_foreground {
+                    ui.label(RichText::new(format!("→ {} ({})", fg.name, fg.pid)).weak());
                 }
 
                 // Prominent attached / error state so the result is never missed.
@@ -663,6 +669,26 @@ impl GameGeneApp {
             }
         }
     }
+}
+
+/// Whether a process is the OS shell / system UI rather than a real app.
+/// These briefly take the foreground as the user switches windows (clicking the
+/// taskbar, alt-tab, the desktop), so they must not overwrite the detected game.
+fn is_shell_process(name: &str) -> bool {
+    const IGNORE: &[&str] = &[
+        "explorer.exe",
+        "dwm.exe",
+        "applicationframehost.exe",
+        "searchhost.exe",
+        "searchapp.exe",
+        "startmenuexperiencehost.exe",
+        "shellexperiencehost.exe",
+        "textinputhost.exe",
+        "systemsettings.exe",
+        "lockapp.exe",
+    ];
+    let lower = name.to_ascii_lowercase();
+    IGNORE.contains(&lower.as_str())
 }
 
 /// Format a duration as `HH:MM:SS` for the running-time display.
