@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format is based on
 follows [Semantic Versioning](https://semver.org/) (0.x: minor bumps may include
 breaking changes).
 
+## [0.2.1]
+
+### Fixed
+- "Detect game" no longer locks onto the Windows shell (`explorer.exe`) or
+  system UI when switching windows — it keeps the real foreground game and now
+  shows the detected target (name + pid) next to the button.
+
+### Changed
+- Releases are published with the GitHub CLI instead of a third-party action,
+  removing the Node-20 deprecation warning and future maintenance.
+
 ## [0.2.0]
 
 ### Added
