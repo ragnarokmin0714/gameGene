@@ -6,9 +6,9 @@
 //! new value and confirm our own variable changed.
 #![cfg(target_os = "linux")]
 
-use memgene_core::scan::{Compare, ScanSession};
-use memgene_core::value::{ScanValue, ValueType};
-use memgene_platform::attach;
+use gamegene_core::scan::{Compare, ScanSession};
+use gamegene_core::value::{ScanValue, ValueType};
+use gamegene_platform::attach;
 
 #[test]
 fn scans_and_edits_own_process_memory() {

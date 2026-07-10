@@ -1,4 +1,4 @@
-//! MemGene desktop entry point.
+//! GameGene desktop entry point.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
@@ -6,7 +6,7 @@ mod i18n;
 mod theme;
 
 use eframe::egui;
-use memgene_core::constants::APP_NAME;
+use gamegene_core::constants::APP_NAME;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -21,6 +21,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         APP_NAME,
         options,
-        Box::new(|cc| Ok(Box::new(app::MemGeneApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(app::GameGeneApp::new(cc)))),
     )
 }

@@ -1,13 +1,13 @@
-//! The MemGene desktop app: attach to a process, scan, narrow, and manage a
+//! The GameGene desktop app: attach to a process, scan, narrow, and manage a
 //! cheat table of found values.
 
 use eframe::egui::{self, RichText};
-use memgene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
-use memgene_core::scan::{Compare, ScanSession};
-use memgene_core::table::{CheatTable, Locator, TableEntry};
-use memgene_core::value::{ScanValue, ValueType};
-use memgene_core::MemorySource;
-use memgene_platform::{attach, list_processes, ProcessInfo, BACKEND_NAME};
+use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
+use gamegene_core::scan::{Compare, ScanSession};
+use gamegene_core::table::{CheatTable, Locator, TableEntry};
+use gamegene_core::value::{ScanValue, ValueType};
+use gamegene_core::MemorySource;
+use gamegene_platform::{attach, list_processes, ProcessInfo, BACKEND_NAME};
 use std::time::{Duration, Instant};
 
 use crate::i18n::{self, Lang};
@@ -80,7 +80,7 @@ enum ThemeChoice {
     Dark,
 }
 
-pub struct MemGeneApp {
+pub struct GameGeneApp {
     // Attachment
     processes: Vec<ProcessInfo>,
     filter: String,
@@ -107,11 +107,11 @@ pub struct MemGeneApp {
     last_freeze: Instant,
 }
 
-impl MemGeneApp {
+impl GameGeneApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Register a CJK font up front so Traditional Chinese can render.
         i18n::install_cjk_font(&cc.egui_ctx);
-        MemGeneApp {
+        GameGeneApp {
             processes: list_processes(),
             filter: String::new(),
             source: None,
@@ -228,7 +228,7 @@ impl MemGeneApp {
     }
 }
 
-impl eframe::App for MemGeneApp {
+impl eframe::App for GameGeneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Resolve and apply the theme only when it actually changes.
         let dark = match self.theme {
@@ -260,7 +260,7 @@ impl eframe::App for MemGeneApp {
 }
 
 // UI sections, split out for readability.
-impl MemGeneApp {
+impl GameGeneApp {
     fn top_bar(&mut self, ctx: &egui::Context) {
         let tr = self.tr();
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
@@ -589,8 +589,8 @@ impl MemGeneApp {
 
     fn save_table(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("MemGene table", &[memgene_core::constants::TABLE_FILE_EXT])
-            .set_file_name(format!("table.{}", memgene_core::constants::TABLE_FILE_EXT))
+            .add_filter("GameGene table", &[gamegene_core::constants::TABLE_FILE_EXT])
+            .set_file_name(format!("table.{}", gamegene_core::constants::TABLE_FILE_EXT))
             .save_file()
         {
             match self.table.save(&path) {
@@ -602,7 +602,7 @@ impl MemGeneApp {
 
     fn load_table(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("MemGene table", &[memgene_core::constants::TABLE_FILE_EXT])
+            .add_filter("GameGene table", &[gamegene_core::constants::TABLE_FILE_EXT])
             .pick_file()
         {
             match CheatTable::load(&path) {

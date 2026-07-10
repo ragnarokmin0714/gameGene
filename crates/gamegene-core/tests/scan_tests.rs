@@ -1,8 +1,8 @@
 //! Engine tests: first scan finds candidates, next scan narrows them.
 
-use memgene_core::mock::MockMemory;
-use memgene_core::scan::{Compare, ScanSession};
-use memgene_core::value::{ScanValue, ValueType};
+use gamegene_core::mock::MockMemory;
+use gamegene_core::scan::{Compare, ScanSession};
+use gamegene_core::value::{ScanValue, ValueType};
 
 const BASE: u64 = 0x10000;
 
@@ -111,7 +111,7 @@ fn relative_compare_rejected_on_first_scan() {
     let err = ScanSession::first_scan(&mem, ValueType::I32, Compare::Changed).unwrap_err();
     assert_eq!(
         err,
-        memgene_core::error::ScanError::NeedsPrevious("changed")
+        gamegene_core::error::ScanError::NeedsPrevious("changed")
     );
 }
 

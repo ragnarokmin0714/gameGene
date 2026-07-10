@@ -1,4 +1,4 @@
-//! OS-specific implementations of [`memgene_core::MemorySource`].
+//! OS-specific implementations of [`gamegene_core::MemorySource`].
 //!
 //! The rest of the app is written against the trait and this crate's small
 //! [`list_processes`] / [`attach`] API; the actual syscalls live in per-OS
@@ -6,7 +6,7 @@
 //! (`/proc`) backend exists so the engine can be exercised end-to-end on a dev
 //! machine, and any other OS degrades gracefully to "no processes".
 
-use memgene_core::{MemError, MemorySource};
+use gamegene_core::{MemError, MemorySource};
 
 /// A process the user could attach to.
 #[derive(Debug, Clone, PartialEq, Eq)]

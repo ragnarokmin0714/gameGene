@@ -6,7 +6,7 @@
 //! a Linux dev box — the shipping target is Windows.
 
 use super::ProcessInfo;
-use memgene_core::{MemError, MemoryRegion, MemorySource};
+use gamegene_core::{MemError, MemoryRegion, MemorySource};
 use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::Path;

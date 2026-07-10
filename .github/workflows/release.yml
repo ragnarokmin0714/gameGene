@@ -21,11 +21,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            bin: memgene.exe
-            asset: memgene-windows-x86_64.zip
+            bin: gamegene.exe
+            asset: gamegene-windows-x86_64.zip
           - os: ubuntu-latest
-            bin: memgene
-            asset: memgene-linux-x86_64.tar.gz
+            bin: gamegene
+            asset: gamegene-linux-x86_64.tar.gz
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -40,7 +40,7 @@ jobs:
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Build release binary
-        run: cargo build --release -p memgene-app
+        run: cargo build --release -p gamegene-app
 
       - name: Package (Windows)
         if: runner.os == 'Windows'

@@ -5,16 +5,16 @@
 //! a rename or a performance tweak is a one-line change.
 
 /// Product name. Shown in the window title and used to derive config paths.
-pub const APP_NAME: &str = "MemGene";
+pub const APP_NAME: &str = "GameGene";
 
 /// One-line tagline shown in the UI header.
 pub const APP_TAGLINE: &str = "Single-player memory editor";
 
 /// Folder name used under the OS config directory to store cheat tables.
-pub const CONFIG_DIR_NAME: &str = "memgene";
+pub const CONFIG_DIR_NAME: &str = "gamegene";
 
 /// File extension for saved cheat tables.
-pub const TABLE_FILE_EXT: &str = "mgtable";
+pub const TABLE_FILE_EXT: &str = "ggtable";
 
 /// Bytes read per `read` call while scanning a region. Larger = fewer syscalls
 /// but more transient memory. 4 MiB is a good balance for desktop games.
@@ -32,6 +32,6 @@ pub const FREEZE_INTERVAL_MS: u64 = 100;
 /// older files can be migrated or rejected with a clear message.
 pub const TABLE_FORMAT_VERSION: u32 = 1;
 
-/// Pointer width assumed when dereferencing pointer chains. MemGene targets
+/// Pointer width assumed when dereferencing pointer chains. GameGene targets
 /// 64-bit games; 32-bit support would key this off the target process.
 pub const POINTER_SIZE: usize = 8;

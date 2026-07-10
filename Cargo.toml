@@ -1,17 +1,17 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/memgene-core",
-    "crates/memgene-platform",
-    "crates/memgene-app",
+    "crates/gamegene-core",
+    "crates/gamegene-platform",
+    "crates/gamegene-app",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-authors = ["MemGene contributors"]
-repository = "https://github.com/your-name/memgene"
+authors = ["GameGene contributors"]
+repository = "https://github.com/your-name/gamegene"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

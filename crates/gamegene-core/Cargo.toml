@@ -1,5 +1,5 @@
 [package]
-name = "memgene-core"
+name = "gamegene-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

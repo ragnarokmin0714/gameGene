@@ -1,16 +1,16 @@
 [package]
-name = "memgene-app"
+name = "gamegene-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "memgene"
+name = "gamegene"
 path = "src/main.rs"
 
 [dependencies]
-memgene-core = { path = "../memgene-core" }
-memgene-platform = { path = "../memgene-platform" }
+gamegene-core = { path = "../gamegene-core" }
+gamegene-platform = { path = "../gamegene-platform" }
 eframe = { version = "0.28", default-features = false, features = [
     "default_fonts",
     "glow",

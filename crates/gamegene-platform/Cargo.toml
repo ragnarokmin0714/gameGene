@@ -1,11 +1,11 @@
 [package]
-name = "memgene-platform"
+name = "gamegene-platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-memgene-core = { path = "../memgene-core" }
+gamegene-core = { path = "../gamegene-core" }
 
 # Windows: real process access via the official Win32 bindings.
 [target.'cfg(windows)'.dependencies]

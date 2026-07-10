@@ -1,9 +1,9 @@
 //! Cheat-table tests: locator resolution, apply/freeze, and round-trip save.
 
-use memgene_core::mock::MockMemory;
-use memgene_core::process::MemorySource;
-use memgene_core::table::{CheatTable, Locator, TableEntry};
-use memgene_core::value::{ScanValue, ValueType};
+use gamegene_core::mock::MockMemory;
+use gamegene_core::process::MemorySource;
+use gamegene_core::table::{CheatTable, Locator, TableEntry};
+use gamegene_core::value::{ScanValue, ValueType};
 
 const MOD_BASE: u64 = 0x400000;
 
@@ -125,7 +125,7 @@ fn rejects_unknown_format_version() {
     let err = CheatTable::from_json(json).unwrap_err();
     assert!(matches!(
         err,
-        memgene_core::error::TableError::Version { found: 9999, .. }
+        gamegene_core::error::TableError::Version { found: 9999, .. }
     ));
 }
 

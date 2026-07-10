@@ -8,7 +8,7 @@
 //! Linux CI here — verify it on the target machine.
 
 use super::ProcessInfo;
-use memgene_core::{MemError, MemoryRegion, MemorySource};
+use gamegene_core::{MemError, MemoryRegion, MemorySource};
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};

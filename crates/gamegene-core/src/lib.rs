@@ -1,6 +1,6 @@
-//! # memgene-core
+//! # gamegene-core
 //!
-//! Platform-independent heart of MemGene: value types, the scan engine, and the
+//! Platform-independent heart of GameGene: value types, the scan engine, and the
 //! cheat table. It talks to the outside world only through the
 //! [`MemorySource`](process::MemorySource) trait, so all of it is unit-testable
 //! against [`mock::MockMemory`] with no real process.
