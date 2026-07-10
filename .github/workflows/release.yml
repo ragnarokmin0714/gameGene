@@ -50,8 +50,15 @@ jobs:
         if: runner.os == 'Linux'
         run: tar -czf ${{ matrix.asset }} -C target/release ${{ matrix.bin }}
 
-      - name: Attach to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ matrix.asset }}
-          generate_release_notes: true
+      # Publish with the GitHub CLI (preinstalled on runners) instead of a
+      # third-party Node action, so there is nothing to keep bumping as GitHub
+      # deprecates Node runtimes. Both matrix jobs share one release: whichever
+      # runs first creates it, the other just uploads its asset.
+      - name: Publish to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" --title "$tag" --generate-notes 2>/dev/null || true
+          gh release upload "$tag" "${{ matrix.asset }}" --clobber
