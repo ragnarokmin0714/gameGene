@@ -2,7 +2,7 @@
 //! cheat table of found values.
 
 use eframe::egui::{self, RichText};
-use memgene_core::constants::{APP_NAME, APP_TAGLINE, FREEZE_INTERVAL_MS};
+use memgene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use memgene_core::scan::{Compare, ScanSession};
 use memgene_core::table::{CheatTable, Locator, TableEntry};
 use memgene_core::value::{ScanValue, ValueType};
@@ -10,6 +10,7 @@ use memgene_core::MemorySource;
 use memgene_platform::{attach, list_processes, ProcessInfo, BACKEND_NAME};
 use std::time::{Duration, Instant};
 
+use crate::i18n::{self, Lang};
 use crate::theme;
 
 /// User-facing scan predicate choices.
@@ -45,17 +46,17 @@ impl ScanMode {
         ScanMode::Decreased,
     ];
 
-    fn label(self) -> &'static str {
+    fn label(self, tr: &i18n::Tr) -> &'static str {
         match self {
-            ScanMode::Exact => "Exact value",
-            ScanMode::GreaterThan => "Greater than",
-            ScanMode::LessThan => "Less than",
-            ScanMode::Between => "Between",
-            ScanMode::Unknown => "Unknown initial value",
-            ScanMode::Changed => "Changed",
-            ScanMode::Unchanged => "Unchanged",
-            ScanMode::Increased => "Increased",
-            ScanMode::Decreased => "Decreased",
+            ScanMode::Exact => tr.m_exact,
+            ScanMode::GreaterThan => tr.m_greater,
+            ScanMode::LessThan => tr.m_less,
+            ScanMode::Between => tr.m_between,
+            ScanMode::Unknown => tr.m_unknown,
+            ScanMode::Changed => tr.m_changed,
+            ScanMode::Unchanged => tr.m_unchanged,
+            ScanMode::Increased => tr.m_increased,
+            ScanMode::Decreased => tr.m_decreased,
         }
     }
 
@@ -101,12 +102,15 @@ pub struct MemGeneApp {
     // Chrome
     theme: ThemeChoice,
     applied_dark: Option<bool>,
+    lang: Lang,
     status: String,
     last_freeze: Instant,
 }
 
 impl MemGeneApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Register a CJK font up front so Traditional Chinese can render.
+        i18n::install_cjk_font(&cc.egui_ctx);
         MemGeneApp {
             processes: list_processes(),
             filter: String::new(),
@@ -122,9 +126,14 @@ impl MemGeneApp {
             entry_counter: 0,
             theme: ThemeChoice::System,
             applied_dark: None,
+            lang: Lang::En,
             status: format!("Ready — {BACKEND_NAME}"),
             last_freeze: Instant::now(),
         }
+    }
+
+    fn tr(&self) -> &'static i18n::Tr {
+        self.lang.strings()
     }
 
     /// Translate the current UI mode + inputs into a [`Compare`].
@@ -253,22 +262,40 @@ impl eframe::App for MemGeneApp {
 // UI sections, split out for readability.
 impl MemGeneApp {
     fn top_bar(&mut self, ctx: &egui::Context) {
+        let tr = self.tr();
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading(APP_NAME);
-                ui.label(RichText::new(APP_TAGLINE).weak());
+                ui.label(RichText::new(tr.tagline).weak());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    egui::ComboBox::from_id_source("theme")
-                        .selected_text(match self.theme {
-                            ThemeChoice::System => "System",
-                            ThemeChoice::Light => "Light",
-                            ThemeChoice::Dark => "Dark",
+                    egui::ComboBox::from_id_source("lang")
+                        .selected_text(match self.lang {
+                            Lang::En => "English",
+                            Lang::ZhHant => "繁體中文",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.theme, ThemeChoice::System, "System");
-                            ui.selectable_value(&mut self.theme, ThemeChoice::Light, "Light");
-                            ui.selectable_value(&mut self.theme, ThemeChoice::Dark, "Dark");
+                            ui.selectable_value(&mut self.lang, Lang::En, "English");
+                            ui.selectable_value(&mut self.lang, Lang::ZhHant, "繁體中文");
+                        });
+                    egui::ComboBox::from_id_source("theme")
+                        .selected_text(match self.theme {
+                            ThemeChoice::System => tr.theme_system,
+                            ThemeChoice::Light => tr.theme_light,
+                            ThemeChoice::Dark => tr.theme_dark,
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::System,
+                                tr.theme_system,
+                            );
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::Light,
+                                tr.theme_light,
+                            );
+                            ui.selectable_value(&mut self.theme, ThemeChoice::Dark, tr.theme_dark);
                         });
                     if self.source.is_some() {
                         ui.colored_label(
@@ -276,7 +303,7 @@ impl MemGeneApp {
                             format!("● {}", self.attached_name),
                         );
                     } else {
-                        ui.label(RichText::new("● not attached").weak());
+                        ui.label(RichText::new(tr.not_attached).weak());
                     }
                 });
             });
@@ -294,20 +321,21 @@ impl MemGeneApp {
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
+                let tr = self.tr();
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.strong("Processes");
-                    if ui.small_button("Refresh").clicked() {
+                    ui.strong(tr.processes);
+                    if ui.small_button(tr.refresh).clicked() {
                         self.processes = list_processes();
                     }
                 });
-                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("Filter…"));
+                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text(tr.filter_hint));
 
                 // Attach / detach controls for the selected process.
                 ui.horizontal(|ui| {
                     let can_attach = self.selected_pid.is_some();
                     if ui
-                        .add_enabled(can_attach, egui::Button::new("Attach"))
+                        .add_enabled(can_attach, egui::Button::new(tr.attach))
                         .clicked()
                     {
                         if let Some(pid) = self.selected_pid {
@@ -320,7 +348,7 @@ impl MemGeneApp {
                             self.attach_to(pid, name);
                         }
                     }
-                    if self.source.is_some() && ui.small_button("Detach").clicked() {
+                    if self.source.is_some() && ui.small_button(tr.detach).clicked() {
                         self.source = None;
                         self.attached_name.clear();
                         self.session = None;
@@ -332,19 +360,14 @@ impl MemGeneApp {
                 if self.source.is_some() {
                     ui.colored_label(
                         egui::Color32::from_rgb(52, 199, 89),
-                        format!("✓ Attached: {}", self.attached_name),
+                        format!("{}{}", tr.attached_prefix, self.attached_name),
                     );
                 } else if self.status.starts_with("Attach failed") {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 69, 58),
-                        "⚠ Attach failed — run as Administrator (see status bar)",
-                    );
+                    ui.colored_label(egui::Color32::from_rgb(255, 69, 58), tr.attach_failed);
                 }
 
                 ui.separator();
-                ui.label(
-                    RichText::new("Click to select · double-click or Attach to connect").weak(),
-                );
+                ui.label(RichText::new(tr.proc_hint).weak());
 
                 let filter = self.filter.to_lowercase();
                 let mut new_selected = None;
@@ -377,10 +400,11 @@ impl MemGeneApp {
     }
 
     fn scan_panel(&mut self, ctx: &egui::Context) {
+        let tr = self.tr();
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label("Type");
+                ui.label(tr.ty);
                 egui::ComboBox::from_id_source("vt")
                     .selected_text(self.value_type.label())
                     .show_ui(ui, |ui| {
@@ -389,7 +413,7 @@ impl MemGeneApp {
                         }
                     });
 
-                ui.label("Scan");
+                ui.label(tr.scan);
                 let modes: &[ScanMode] = if self.session.is_some() {
                     &ScanMode::NEXT
                 } else {
@@ -399,10 +423,10 @@ impl MemGeneApp {
                     self.mode = modes[0];
                 }
                 egui::ComboBox::from_id_source("mode")
-                    .selected_text(self.mode.label())
+                    .selected_text(self.mode.label(tr))
                     .show_ui(ui, |ui| {
                         for m in modes {
-                            ui.selectable_value(&mut self.mode, *m, m.label());
+                            ui.selectable_value(&mut self.mode, *m, m.label(tr));
                         }
                     });
             });
@@ -412,7 +436,7 @@ impl MemGeneApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.value_text)
                             .desired_width(120.0)
-                            .hint_text("value"),
+                            .hint_text(tr.value_hint),
                     );
                 }
                 if self.mode.needs_two() {
@@ -420,32 +444,32 @@ impl MemGeneApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.value2_text)
                             .desired_width(120.0)
-                            .hint_text("value"),
+                            .hint_text(tr.value_hint),
                     );
                 }
             });
 
             ui.horizontal(|ui| {
-                if ui.button("First scan").clicked() {
+                if ui.button(tr.first_scan).clicked() {
                     self.do_first_scan();
                 }
                 ui.add_enabled_ui(self.session.is_some(), |ui| {
-                    if ui.button("Next scan").clicked() {
+                    if ui.button(tr.next_scan).clicked() {
                         self.do_next_scan();
                     }
                 });
-                if ui.button("Reset").clicked() {
+                if ui.button(tr.reset).clicked() {
                     self.session = None;
                     self.mode = ScanMode::Exact;
                     self.status = "Scan reset".into();
                 }
                 if let Some(s) = &self.session {
-                    ui.label(RichText::new(format!("{} matches", s.len())).weak());
+                    ui.label(RichText::new(format!("{} {}", s.len(), tr.matches)).weak());
                 }
             });
 
             ui.separator();
-            ui.strong("Results");
+            ui.strong(tr.results);
 
             let mut add_addr = None;
             let src = self.source.as_deref();
@@ -465,14 +489,14 @@ impl MemGeneApp {
                                         .map(|v| v.display())
                                         .unwrap_or_else(|| "—".into());
                                     ui.label(now);
-                                    if ui.small_button("＋ Table").clicked() {
+                                    if ui.small_button(tr.add_table).clicked() {
                                         add_addr = Some(m.address);
                                     }
                                     ui.end_row();
                                 }
                             });
                     } else {
-                        ui.label(RichText::new("No scan yet.").weak());
+                        ui.label(RichText::new(tr.no_scan).weak());
                     }
                 });
 
@@ -487,19 +511,18 @@ impl MemGeneApp {
             .resizable(true)
             .default_width(340.0)
             .show(ctx, |ui| {
+                let tr = self.tr();
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.strong("Cheat table");
-                    if ui.small_button("Save…").clicked() {
+                    ui.strong(tr.cheat_table);
+                    if ui.small_button(tr.save).clicked() {
                         self.save_table();
                     }
-                    if ui.small_button("Load…").clicked() {
+                    if ui.small_button(tr.load).clicked() {
                         self.load_table();
                     }
                 });
-                ui.label(
-                    RichText::new("Saved addresses persist — no need to rescan next time.").weak(),
-                );
+                ui.label(RichText::new(tr.table_subtitle).weak());
                 ui.separator();
 
                 let src = self.source.as_deref();
@@ -514,7 +537,7 @@ impl MemGeneApp {
                                     egui::TextEdit::singleline(&mut entry.label)
                                         .desired_width(120.0),
                                 );
-                                ui.checkbox(&mut entry.frozen, "Freeze");
+                                ui.checkbox(&mut entry.frozen, tr.freeze);
                                 if ui.small_button("✕").clicked() {
                                     remove_id = Some(entry.id);
                                 }
@@ -524,7 +547,9 @@ impl MemGeneApp {
                                     .and_then(|s| entry.read_current(s))
                                     .map(|v| v.display())
                                     .unwrap_or_else(|| "—".into());
-                                ui.label(RichText::new(format!("now: {current}")).weak());
+                                ui.label(
+                                    RichText::new(format!("{}{current}", tr.now_prefix)).weak(),
+                                );
                                 ui.label("→");
                                 let mut txt =
                                     entry.desired.map(|v| v.display()).unwrap_or_default();
@@ -532,13 +557,13 @@ impl MemGeneApp {
                                     .add(
                                         egui::TextEdit::singleline(&mut txt)
                                             .desired_width(90.0)
-                                            .hint_text("set"),
+                                            .hint_text(tr.set_hint),
                                     )
                                     .changed()
                                 {
                                     entry.desired = ScanValue::parse(entry.value_type, &txt).ok();
                                 }
-                                if ui.small_button("Apply").clicked() {
+                                if ui.small_button(tr.apply).clicked() {
                                     apply_id = Some(entry.id);
                                 }
                             });
