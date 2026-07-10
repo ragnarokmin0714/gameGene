@@ -204,6 +204,7 @@ impl MemorySource for WindowsProcess {
 
 /// Whether a page-protection constant permits writing.
 fn is_writable(protect: u32) -> bool {
-    let w = PAGE_READWRITE.0 | PAGE_WRITECOPY.0 | PAGE_EXECUTE_READWRITE.0 | PAGE_EXECUTE_WRITECOPY.0;
+    let w =
+        PAGE_READWRITE.0 | PAGE_WRITECOPY.0 | PAGE_EXECUTE_READWRITE.0 | PAGE_EXECUTE_WRITECOPY.0;
     protect & w != 0
 }

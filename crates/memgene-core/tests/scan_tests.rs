@@ -19,8 +19,9 @@ fn planted_mem() -> MockMemory {
 #[test]
 fn first_scan_exact_finds_all_occurrences() {
     let mem = planted_mem();
-    let session = ScanSession::first_scan(&mem, ValueType::I32, Compare::Exact(ScanValue::I32(100)))
-        .expect("first scan");
+    let session =
+        ScanSession::first_scan(&mem, ValueType::I32, Compare::Exact(ScanValue::I32(100)))
+            .expect("first scan");
 
     let addrs: Vec<u64> = session.matches().iter().map(|m| m.address).collect();
     assert_eq!(addrs, vec![BASE, BASE + 8, BASE + 32]);
@@ -37,7 +38,9 @@ fn next_scan_changed_narrows_to_the_edited_address() {
     // Simulate the game changing only the value at BASE+8.
     mem.poke(BASE + 8, &175i32.to_le_bytes());
 
-    session.next_scan(&mem, Compare::Changed).expect("next scan");
+    session
+        .next_scan(&mem, Compare::Changed)
+        .expect("next scan");
     let addrs: Vec<u64> = session.matches().iter().map(|m| m.address).collect();
     assert_eq!(addrs, vec![BASE + 8]);
     // previous value should have been refreshed to the new reading.
@@ -75,8 +78,12 @@ fn next_scan_increased_and_decreased() {
 fn greater_less_between_predicates() {
     let mem = planted_mem();
 
-    let gt = ScanSession::first_scan(&mem, ValueType::I32, Compare::GreaterThan(ScanValue::I32(150)))
-        .unwrap();
+    let gt = ScanSession::first_scan(
+        &mem,
+        ValueType::I32,
+        Compare::GreaterThan(ScanValue::I32(150)),
+    )
+    .unwrap();
     assert_eq!(
         gt.matches().iter().map(|m| m.address).collect::<Vec<_>>(),
         vec![BASE + 16] // only 250
@@ -89,7 +96,11 @@ fn greater_less_between_predicates() {
     )
     .unwrap();
     assert_eq!(
-        between.matches().iter().map(|m| m.address).collect::<Vec<_>>(),
+        between
+            .matches()
+            .iter()
+            .map(|m| m.address)
+            .collect::<Vec<_>>(),
         vec![BASE, BASE + 8, BASE + 32] // the three 100s
     );
 }
@@ -98,7 +109,10 @@ fn greater_less_between_predicates() {
 fn relative_compare_rejected_on_first_scan() {
     let mem = planted_mem();
     let err = ScanSession::first_scan(&mem, ValueType::I32, Compare::Changed).unwrap_err();
-    assert_eq!(err, memgene_core::error::ScanError::NeedsPrevious("changed"));
+    assert_eq!(
+        err,
+        memgene_core::error::ScanError::NeedsPrevious("changed")
+    );
 }
 
 #[test]
@@ -107,8 +121,8 @@ fn float_scan_works() {
     mem.poke(BASE, &3.5f32.to_le_bytes());
     mem.poke(BASE + 4, &9.0f32.to_le_bytes());
 
-    let s = ScanSession::first_scan(&mem, ValueType::F32, Compare::Exact(ScanValue::F32(3.5)))
-        .unwrap();
+    let s =
+        ScanSession::first_scan(&mem, ValueType::F32, Compare::Exact(ScanValue::F32(3.5))).unwrap();
     assert_eq!(
         s.matches().iter().map(|m| m.address).collect::<Vec<_>>(),
         vec![BASE]

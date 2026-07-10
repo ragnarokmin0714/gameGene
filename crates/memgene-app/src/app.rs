@@ -127,9 +127,7 @@ impl MemGeneApp {
 
     /// Translate the current UI mode + inputs into a [`Compare`].
     fn build_compare(&self) -> Result<Compare, String> {
-        let parse = |t: &str| {
-            ScanValue::parse(self.value_type, t).map_err(|e| e.to_string())
-        };
+        let parse = |t: &str| ScanValue::parse(self.value_type, t).map_err(|e| e.to_string());
         Ok(match self.mode {
             ScanMode::Exact => Compare::Exact(parse(&self.value_text)?),
             ScanMode::GreaterThan => Compare::GreaterThan(parse(&self.value_text)?),
@@ -254,7 +252,8 @@ impl MemGeneApp {
                             ui.selectable_value(&mut self.theme, ThemeChoice::Light, "Light");
                             ui.selectable_value(&mut self.theme, ThemeChoice::Dark, "Dark");
                         });
-                    if let Some(name) = (!self.attached_name.is_empty()).then_some(&self.attached_name)
+                    if let Some(name) =
+                        (!self.attached_name.is_empty()).then_some(&self.attached_name)
                     {
                         ui.label(RichText::new(format!("● {name}")).weak());
                     }
@@ -463,10 +462,8 @@ impl MemGeneApp {
                                     .unwrap_or_else(|| "—".into());
                                 ui.label(RichText::new(format!("now: {current}")).weak());
                                 ui.label("→");
-                                let mut txt = entry
-                                    .desired
-                                    .map(|v| v.display())
-                                    .unwrap_or_default();
+                                let mut txt =
+                                    entry.desired.map(|v| v.display()).unwrap_or_default();
                                 if ui
                                     .add(
                                         egui::TextEdit::singleline(&mut txt)

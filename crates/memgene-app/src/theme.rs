@@ -11,7 +11,11 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
         Color32::from_rgb(0, 122, 255) // iOS systemBlue (light)
     };
 
-    let mut v = if dark { Visuals::dark() } else { Visuals::light() };
+    let mut v = if dark {
+        Visuals::dark()
+    } else {
+        Visuals::light()
+    };
 
     let (panel, window, extreme, faint, border, btn, btn_hover) = if dark {
         (
