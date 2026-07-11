@@ -1,7 +1,7 @@
 //! The GameGene desktop app: attach to a process, scan, narrow, and manage a
 //! cheat table of found values.
 
-use eframe::egui::{self, RichText};
+use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::hexview::{ascii_char, interpret};
@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 
 use crate::fonts;
 use crate::i18n::{self, Lang};
+use crate::settings::{Action, KeyBindings};
 use crate::theme;
+use serde::{Deserialize, Serialize};
 
 /// User-facing scan predicate choices.
 #[derive(Clone, Copy, PartialEq)]
@@ -78,8 +80,9 @@ impl ScanMode {
 
 /// Theme selection: an Apple skin (follow OS / forced light / forced dark) or a
 /// warm Claude skin (light / dark).
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 enum ThemeChoice {
+    #[default]
     System,
     Light,
     Dark,
@@ -107,6 +110,15 @@ enum FindMode {
     Text,
     Utf16,
     Aob,
+}
+
+/// The slice of state saved between runs (via eframe's storage).
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct Persisted {
+    theme: ThemeChoice,
+    lang: Lang,
+    keys: KeyBindings,
 }
 
 pub struct GameGeneApp {
@@ -142,6 +154,8 @@ pub struct GameGeneApp {
     hex_sel: Option<u64>,
     hex_write_type: ValueType,
     hex_write_text: String,
+    /// Show every interpreted type in the memory viewer, not just the common few.
+    hex_more: bool,
 
     // Chrome
     theme: ThemeChoice,
@@ -152,6 +166,13 @@ pub struct GameGeneApp {
     /// every frame.
     applied_serif: Option<bool>,
     lang: Lang,
+
+    // Settings / shortcuts
+    keys: KeyBindings,
+    show_settings: bool,
+    /// Action whose shortcut is being re-bound (waiting for a key press).
+    capturing: Option<Action>,
+
     status: String,
     last_freeze: Instant,
     started: Instant,
@@ -159,6 +180,12 @@ pub struct GameGeneApp {
 
 impl GameGeneApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Restore saved theme / language / shortcuts, if any.
+        let saved: Persisted = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
+            .unwrap_or_default();
+
         // Install fonts up front: default sans + a CJK fallback so Traditional
         // Chinese renders. The serif face is swapped in later if the Claude
         // theme is chosen.
@@ -187,11 +214,15 @@ impl GameGeneApp {
             hex_sel: None,
             hex_write_type: ValueType::I32,
             hex_write_text: String::new(),
-            theme: ThemeChoice::System,
+            hex_more: false,
+            theme: saved.theme,
             applied_theme: None,
             cjk_font,
             applied_serif: Some(false),
-            lang: Lang::En,
+            lang: saved.lang,
+            keys: saved.keys,
+            show_settings: false,
+            capturing: None,
             status: format!("Ready — {BACKEND_NAME}"),
             last_freeze: Instant::now(),
             started: Instant::now(),
@@ -358,11 +389,148 @@ impl eframe::App for GameGeneApp {
         // foreground detection stays current even when idle.
         ctx.request_repaint_after(Duration::from_millis(FREEZE_INTERVAL_MS.min(1000)));
 
+        self.handle_shortcuts(ctx);
+
         self.top_bar(ctx);
         self.process_panel(ctx);
         self.table_panel(ctx);
         self.scan_panel(ctx);
         self.hex_window(ctx);
+        self.settings_window(ctx);
+    }
+
+    /// Persist theme / language / shortcuts. eframe calls this on exit and
+    /// periodically while running.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let persisted = Persisted {
+            theme: self.theme,
+            lang: self.lang,
+            keys: self.keys.clone(),
+        };
+        eframe::set_value(storage, eframe::APP_KEY, &persisted);
+    }
+}
+
+impl GameGeneApp {
+    /// Capture a key when re-binding, otherwise fire any matching shortcut.
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        if let Some(action) = self.capturing {
+            // Bind the first non-modifier key pressed; Esc cancels.
+            let captured = ctx.input(|i| {
+                Key::ALL
+                    .iter()
+                    .find(|k| i.key_pressed(**k))
+                    .map(|k| (i.modifiers, *k))
+            });
+            if let Some((mods, key)) = captured {
+                if key != Key::Escape {
+                    self.keys
+                        .set(action, crate::settings::Hotkey::from_parts(mods, key));
+                }
+                self.capturing = None;
+            }
+            return; // don't also trigger actions while binding
+        }
+
+        for action in Action::ALL {
+            if let Some(sc) = self.keys.get(action).to_shortcut() {
+                if ctx.input_mut(|i| i.consume_shortcut(&sc)) {
+                    self.run_action(action);
+                }
+            }
+        }
+    }
+
+    /// Perform a shortcut action (also usable from buttons).
+    fn run_action(&mut self, action: Action) {
+        match action {
+            Action::DetectGame => {
+                if let Some(fg) = self.last_foreground.clone() {
+                    self.selected_pid = Some(fg.pid);
+                    self.attach_to(fg.pid, fg.name);
+                }
+            }
+            Action::Attach => {
+                if let Some(pid) = self.selected_pid {
+                    let name = self
+                        .processes
+                        .iter()
+                        .find(|p| p.pid == pid)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default();
+                    self.attach_to(pid, name);
+                }
+            }
+            Action::Save => self.save_table(),
+            Action::Load => self.load_table(),
+            Action::ToggleMemory => self.show_hex = !self.show_hex,
+            Action::FirstScan => {
+                if self.session.is_none() {
+                    self.do_first_scan();
+                }
+            }
+            Action::NextScan => {
+                if self.session.is_some() {
+                    self.do_next_scan();
+                }
+            }
+            Action::ResetScan => {
+                self.session = None;
+                self.mode = ScanMode::Exact;
+                self.status = "Scan reset".into();
+            }
+        }
+    }
+
+    fn settings_window(&mut self, ctx: &egui::Context) {
+        if !self.show_settings {
+            return;
+        }
+        let tr = self.tr();
+        let mut open = self.show_settings;
+        let mut start_capture = None;
+        let mut reset = false;
+
+        egui::Window::new(tr.settings)
+            .open(&mut open)
+            .resizable(false)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.strong(tr.sc_title);
+                ui.label(RichText::new(tr.sc_hint).weak());
+                ui.add_space(4.0);
+                egui::Grid::new("shortcuts")
+                    .num_columns(3)
+                    .striped(true)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        for action in Action::ALL {
+                            ui.label(action_label(tr, action));
+                            if self.capturing == Some(action) {
+                                ui.colored_label(egui::Color32::from_rgb(0, 122, 255), tr.sc_press);
+                            } else {
+                                ui.monospace(self.keys.get(action).label());
+                            }
+                            if ui.small_button(tr.sc_change).clicked() {
+                                start_capture = Some(action);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                ui.separator();
+                if ui.button(tr.sc_reset).clicked() {
+                    reset = true;
+                }
+            });
+
+        if let Some(a) = start_capture {
+            self.capturing = Some(a);
+        }
+        if reset {
+            self.keys = KeyBindings::default();
+            self.capturing = None;
+        }
+        self.show_settings = open;
     }
 }
 
@@ -389,6 +557,7 @@ impl GameGeneApp {
                     .weak(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.toggle_value(&mut self.show_settings, tr.settings);
                     ui.toggle_value(&mut self.show_hex, tr.mem_view);
                     egui::ComboBox::from_id_source("lang")
                         .selected_text(match self.lang {
@@ -969,24 +1138,47 @@ impl GameGeneApp {
                         ui.monospace(format!("@ {sel:#014X}"));
                         let off = sel.wrapping_sub(self.hex_addr) as usize;
                         if off < got {
-                            // Each type on its own row; long values (f64) are
-                            // truncated with the full value on hover, so they
-                            // never blow out the panel width.
+                            // Show the raw bytes plus the common types (Int32,
+                            // Float); "more" expands to every type. Long values
+                            // (f64) truncate with the full value on hover, so
+                            // they never blow out the panel width.
+                            let more = self.hex_more;
+                            let region = &buf[off..got];
                             egui::Grid::new("hex_interp")
                                 .num_columns(2)
                                 .striped(true)
                                 .show(ui, |ui| {
-                                    for (ty, v) in interpret(&buf[off..got]) {
-                                        ui.monospace(ty.label());
-                                        let full = v.display();
-                                        ui.add(
-                                            egui::Label::new(RichText::new(&full).monospace())
-                                                .truncate(),
-                                        )
-                                        .on_hover_text(&full);
-                                        ui.end_row();
+                                    let raw: String = region
+                                        .iter()
+                                        .take(8)
+                                        .map(|b| format!("{b:02X} "))
+                                        .collect();
+                                    let raw = raw.trim_end();
+                                    ui.monospace(tr.mem_raw);
+                                    ui.add(
+                                        egui::Label::new(RichText::new(raw).monospace()).truncate(),
+                                    )
+                                    .on_hover_text(raw);
+                                    ui.end_row();
+
+                                    for (ty, v) in interpret(region) {
+                                        let common = matches!(ty, ValueType::I32 | ValueType::F32);
+                                        if more || common {
+                                            ui.monospace(ty.label());
+                                            let full = v.display();
+                                            ui.add(
+                                                egui::Label::new(RichText::new(&full).monospace())
+                                                    .truncate(),
+                                            )
+                                            .on_hover_text(&full);
+                                            ui.end_row();
+                                        }
                                     }
                                 });
+                            let label = if more { tr.mem_less } else { tr.mem_more };
+                            if ui.small_button(label).clicked() {
+                                self.hex_more = !more;
+                            }
                         }
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_source("hexwt")
@@ -1131,6 +1323,20 @@ impl GameGeneApp {
                 Err(e) => self.status = format!("Load failed: {e}"),
             }
         }
+    }
+}
+
+/// Label for an action in the shortcuts list, reusing the button strings.
+fn action_label(tr: &i18n::Tr, action: Action) -> &'static str {
+    match action {
+        Action::DetectGame => tr.detect_game,
+        Action::Attach => tr.attach,
+        Action::Save => tr.save,
+        Action::Load => tr.load,
+        Action::ToggleMemory => tr.mem_view,
+        Action::FirstScan => tr.first_scan,
+        Action::NextScan => tr.next_scan,
+        Action::ResetScan => tr.reset,
     }
 }
 

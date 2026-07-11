@@ -7,6 +7,26 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.6.0]
+
+### Added
+- **Settings persist across restarts**: the chosen theme, language, and keyboard
+  shortcuts are saved and restored (via eframe storage).
+- **Editable keyboard shortcuts** (new "Settings" window): Detect game, Attach,
+  Save, Load, toggle Memory, First scan, Next scan, and Reset. Click "Change" to
+  rebind (Esc cancels) and "Reset to defaults" to restore them. Defaults are
+  Ctrl + a letter (e.g. Ctrl+S save, Ctrl+M memory, Ctrl+G detect game).
+
+### Changed
+- Claude Dark uses a warmer, lighter charcoal background (no longer near-black)
+  and cleaner near-white text (no more tan tint).
+- Memory viewer inspector shows the raw hex plus Int32 and Float by default;
+  "More types" expands to every type.
+
+### Fixed
+- Memory viewer no longer shakes when hovering a cell — hover/active states no
+  longer expand widgets, so the grid stops reflowing under the cursor.
+
 ## [0.5.1]
 
 ### Added

@@ -14,9 +14,11 @@ gamegene-platform = { path = "../gamegene-platform" }
 eframe = { version = "0.28", default-features = false, features = [
     "default_fonts",
     "glow",
+    "persistence", # remember theme / language / shortcuts across restarts
 ] }
 egui = "0.28"
 rfd = "0.14"
+serde = { version = "1", features = ["derive"] }
 
 # Embed the icon (and version info) into the Windows .exe so the taskbar,
 # Explorer, and pinned shortcuts use the brand mark, not a default icon.

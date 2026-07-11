@@ -5,6 +5,7 @@ mod app;
 mod fonts;
 mod i18n;
 mod icon;
+mod settings;
 mod theme;
 
 use eframe::egui;

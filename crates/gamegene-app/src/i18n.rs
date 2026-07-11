@@ -1,9 +1,12 @@
 //! UI language strings. Font installation (including the CJK fallback) lives in
 //! the [`crate::fonts`] module.
 
+use serde::{Deserialize, Serialize};
+
 /// Selectable UI language.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum Lang {
+    #[default]
     En,
     ZhHant,
 }
@@ -27,6 +30,13 @@ pub struct Tr {
     pub theme_claude: &'static str,
     pub theme_claude_dark: &'static str,
     pub not_attached: &'static str,
+
+    pub settings: &'static str,
+    pub sc_title: &'static str,
+    pub sc_change: &'static str,
+    pub sc_press: &'static str,
+    pub sc_reset: &'static str,
+    pub sc_hint: &'static str,
 
     pub processes: &'static str,
     pub refresh: &'static str,
@@ -76,6 +86,9 @@ pub struct Tr {
     pub mem_write: &'static str,
     pub mem_addr_hint: &'static str,
     pub mem_pick_hint: &'static str,
+    pub mem_raw: &'static str,
+    pub mem_more: &'static str,
+    pub mem_less: &'static str,
     pub entry_goto_hint: &'static str,
 
     pub m_exact: &'static str,
@@ -97,6 +110,13 @@ static EN: Tr = Tr {
     theme_claude: "Claude",
     theme_claude_dark: "Claude Dark",
     not_attached: "• not attached",
+
+    settings: "Settings",
+    sc_title: "Keyboard shortcuts",
+    sc_change: "Change",
+    sc_press: "press keys… (Esc cancels)",
+    sc_reset: "Reset to defaults",
+    sc_hint: "Shortcuts work anywhere in the app.",
 
     processes: "Processes",
     refresh: "Refresh",
@@ -146,6 +166,9 @@ static EN: Tr = Tr {
     mem_write: "Write",
     mem_addr_hint: "address (hex)",
     mem_pick_hint: "Click a byte above to inspect and edit it.",
+    mem_raw: "raw",
+    mem_more: "More types",
+    mem_less: "Fewer types",
     entry_goto_hint: "Open the memory viewer at this address",
 
     m_exact: "Exact value",
@@ -167,6 +190,13 @@ static ZH: Tr = Tr {
     theme_claude: "Claude",
     theme_claude_dark: "Claude 深色",
     not_attached: "• 未連接",
+
+    settings: "設定",
+    sc_title: "鍵盤快捷鍵",
+    sc_change: "變更",
+    sc_press: "請按鍵…(Esc 取消)",
+    sc_reset: "恢復預設",
+    sc_hint: "快捷鍵在程式任何地方都有效。",
 
     processes: "處理程序",
     refresh: "重新整理",
@@ -216,6 +246,9 @@ static ZH: Tr = Tr {
     mem_write: "寫入",
     mem_addr_hint: "位址 (hex)",
     mem_pick_hint: "點上方任一位元組即可檢視與編輯。",
+    mem_raw: "原型",
+    mem_more: "更多型別",
+    mem_less: "收合型別",
     entry_goto_hint: "在記憶體檢視器開啟此位址",
 
     m_exact: "精確值",

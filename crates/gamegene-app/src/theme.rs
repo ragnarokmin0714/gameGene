@@ -67,15 +67,15 @@ fn palette(skin: Skin, dark: bool) -> Palette {
             text: Some(rgb(61, 61, 58)),
         },
         (Skin::Claude, true) => Palette {
-            accent: rgb(217, 119, 87), // Claude terracotta (dark)
-            panel: rgb(38, 38, 36),
-            window: rgb(48, 48, 46),
-            extreme: rgb(32, 32, 30),
-            faint: rgb(54, 54, 50),
-            border: rgb(70, 70, 64),
-            btn: rgb(60, 60, 56),
-            btn_hover: rgb(74, 74, 68),
-            text: Some(rgb(232, 230, 220)),
+            accent: rgb(224, 122, 88), // Claude terracotta (dark)
+            panel: rgb(48, 47, 44),    // warm charcoal — deliberately not black
+            window: rgb(56, 54, 51),
+            extreme: rgb(42, 41, 38),
+            faint: rgb(64, 62, 58),
+            border: rgb(84, 81, 74),
+            btn: rgb(66, 64, 60),
+            btn_hover: rgb(82, 79, 73),
+            text: Some(rgb(242, 240, 234)), // warm near-white, not tan
         },
     }
 }
@@ -125,6 +125,18 @@ pub fn apply(ctx: &egui::Context, skin: Skin, dark: bool) {
     v.widgets.active.weak_bg_fill = accent;
     v.widgets.active.bg_stroke = Stroke::new(1.0_f32, accent);
     v.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+
+    // No hover/active growth: an expanding cell inside a grid reflows the whole
+    // row, which reads as a shake when hovering dense tables (the memory view).
+    for w in [
+        &mut v.widgets.noninteractive,
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
+        w.expansion = 0.0;
+    }
 
     ctx.set_visuals(v);
 
