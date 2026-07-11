@@ -7,6 +7,19 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.9.0]
+
+### Added
+- **Group scan** (in the scan panel): enter several values (e.g. `100 50 12`,
+  interpreted as the selected Type) and a byte span, and it finds addresses of
+  the first value that have all the others within that span — Cheat Engine's
+  "group / commonality" scan, useful for locating a struct from known fields.
+
+### Changed
+- Memory viewer: the value inspector and the write / +Table / Dissect controls
+  now sit directly under the address bar instead of at the very bottom, so
+  editing is within easy reach; the hex grid fills the space below.
+
 ## [0.8.0]
 
 ### Added

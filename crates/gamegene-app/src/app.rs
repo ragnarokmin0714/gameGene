@@ -5,6 +5,7 @@ use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
+use gamegene_core::group::group_scan;
 use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
@@ -149,6 +150,11 @@ pub struct GameGeneApp {
     find_mode: FindMode,
     find_results: Vec<u64>,
 
+    // Group scan (multiple values close together)
+    group_query: String,
+    group_span: u64,
+    group_results: Vec<u64>,
+
     // Memory viewer
     show_hex: bool,
     hex_addr: u64,
@@ -229,6 +235,9 @@ impl GameGeneApp {
             find_query: String::new(),
             find_mode: FindMode::Text,
             find_results: Vec::new(),
+            group_query: String::new(),
+            group_span: 512,
+            group_results: Vec::new(),
             show_hex: false,
             hex_addr: 0,
             hex_addr_input: String::new(),
@@ -396,6 +405,40 @@ impl GameGeneApp {
         self.find_results =
             find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
         self.status = format!("Found {} match(es)", self.find_results.len());
+    }
+
+    /// Group scan: parse the space/comma-separated values (as the selected type)
+    /// and find where they all occur within `group_span` bytes of each other.
+    fn do_group_scan(&mut self) {
+        let ty = self.value_type;
+        let values: Result<Vec<ScanValue>, _> = self
+            .group_query
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .map(|t| ScanValue::parse(ty, t))
+            .collect();
+        let values = match values {
+            Ok(v) => v,
+            Err(e) => {
+                self.status = e.to_string();
+                return;
+            }
+        };
+        if values.len() < 2 {
+            self.status = "Enter at least two values, separated by spaces.".into();
+            return;
+        }
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        self.group_results = group_scan(
+            src,
+            &values,
+            self.group_span,
+            gamegene_core::constants::MAX_RESULTS_DISPLAY,
+        );
+        self.status = format!("Group scan: {} match(es)", self.group_results.len());
     }
 
     fn add_to_table(&mut self, address: u64, value_type: ValueType) {
@@ -918,6 +961,48 @@ impl GameGeneApp {
                 self.add_to_table(addr, self.value_type);
             }
 
+            // Group scan — several values close together (collapsed by default).
+            let mut do_group = false;
+            let mut group_add = None;
+            egui::CollapsingHeader::new(tr.group_title).show(ui, |ui| {
+                ui.label(RichText::new(tr.group_hint).weak());
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.group_query)
+                            .desired_width(200.0)
+                            .hint_text(tr.group_values_hint),
+                    );
+                    ui.label(tr.group_span);
+                    ui.add(egui::DragValue::new(&mut self.group_span).range(4..=65536));
+                    if ui.button(tr.find_search).clicked() {
+                        do_group = true;
+                    }
+                });
+                egui::ScrollArea::vertical()
+                    .id_source("group_results")
+                    .max_height(140.0)
+                    .show(ui, |ui| {
+                        egui::Grid::new("group_grid")
+                            .num_columns(2)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for &addr in &self.group_results {
+                                    ui.monospace(format!("{addr:#014x}"));
+                                    if ui.small_button(tr.add_table).clicked() {
+                                        group_add = Some(addr);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+            if do_group {
+                self.do_group_scan();
+            }
+            if let Some(addr) = group_add {
+                self.add_to_table(addr, self.value_type);
+            }
+
             ui.separator();
             ui.strong(tr.results);
 
@@ -1204,8 +1289,9 @@ impl GameGeneApp {
                     ui.add_space(2.0);
                 });
 
-                // Fixed inspector / editor at the bottom.
-                egui::TopBottomPanel::bottom("hex_bottom").show_inside(ui, |ui| {
+                // Inspector / editor just under the address bar (not at the very
+                // bottom, which is awkward to reach while editing).
+                egui::TopBottomPanel::top("hex_edit").show_inside(ui, |ui| {
                     ui.add_space(4.0);
                     if let Some(sel) = self.hex_sel {
                         ui.monospace(format!("@ {sel:#014X}"));

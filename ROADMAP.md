@@ -13,12 +13,6 @@ array, with preview, count cap, and undo. Remaining niceties:
 - Copy-one-slot-to-all fill (copy a whole record's bytes to every record), on
   top of the current per-field fixed/increment fills.
 
-## Multi-value / group scan
-
-- Search for several values that occur close together (Cheat Engine's "group"
-  or "commonality" scan), e.g. find a region holding `100`, `50`, and `12`
-  within N bytes — useful for locating a struct when you know several fields.
-
 ## Memory viewer enhancements
 
 - In-grid byte editing (type over a cell), not only the write box.
