@@ -1,15 +1,98 @@
-//! A restrained, Apple-flavored theme for egui: soft neutrals, one blue accent,
-//! rounded corners, generous spacing. Works in both light and dark.
+//! Themes for egui. Two skins, each in light and dark, sharing the same
+//! rounded, generously-spaced layout:
+//!
+//! - [`Skin::Apple`]: restrained soft neutrals with one blue accent.
+//! - [`Skin::Claude`]: warm cream / terracotta, echoing the Claude palette.
 
 use eframe::egui::{self, Color32, Rounding, Stroke, Visuals};
 
-/// Apply the theme to the context for the given mode.
-pub fn apply(ctx: &egui::Context, dark: bool) {
-    let accent = if dark {
-        Color32::from_rgb(10, 132, 255) // iOS systemBlue (dark)
-    } else {
-        Color32::from_rgb(0, 122, 255) // iOS systemBlue (light)
-    };
+/// Which colour skin to paint with.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Skin {
+    Apple,
+    Claude,
+}
+
+/// Resolved palette for one skin + mode.
+struct Palette {
+    accent: Color32,
+    panel: Color32,
+    window: Color32,
+    extreme: Color32,
+    faint: Color32,
+    border: Color32,
+    btn: Color32,
+    btn_hover: Color32,
+    /// Warm text override, or `None` to keep egui's default.
+    text: Option<Color32>,
+}
+
+const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
+    Color32::from_rgb(r, g, b)
+}
+
+fn palette(skin: Skin, dark: bool) -> Palette {
+    match (skin, dark) {
+        (Skin::Apple, true) => Palette {
+            accent: rgb(10, 132, 255), // iOS systemBlue (dark)
+            panel: rgb(30, 30, 32),
+            window: rgb(38, 38, 41),
+            extreme: rgb(22, 22, 24),
+            faint: rgb(44, 44, 47),
+            border: rgb(58, 58, 63),
+            btn: rgb(52, 52, 56),
+            btn_hover: rgb(64, 64, 69),
+            text: None,
+        },
+        (Skin::Apple, false) => Palette {
+            accent: rgb(0, 122, 255), // iOS systemBlue (light)
+            panel: rgb(246, 246, 248),
+            window: rgb(255, 255, 255),
+            extreme: rgb(255, 255, 255),
+            faint: rgb(236, 236, 240),
+            border: rgb(220, 220, 226),
+            btn: rgb(255, 255, 255),
+            btn_hover: rgb(244, 244, 247),
+            text: None,
+        },
+        (Skin::Claude, false) => Palette {
+            accent: rgb(204, 120, 92), // Claude terracotta
+            panel: rgb(250, 249, 245), // warm cream
+            window: rgb(255, 254, 250),
+            extreme: rgb(255, 255, 255),
+            faint: rgb(240, 238, 230),
+            border: rgb(228, 225, 214),
+            btn: rgb(245, 243, 236),
+            btn_hover: rgb(237, 234, 224),
+            text: Some(rgb(61, 61, 58)),
+        },
+        (Skin::Claude, true) => Palette {
+            accent: rgb(217, 119, 87), // Claude terracotta (dark)
+            panel: rgb(38, 38, 36),
+            window: rgb(48, 48, 46),
+            extreme: rgb(32, 32, 30),
+            faint: rgb(54, 54, 50),
+            border: rgb(70, 70, 64),
+            btn: rgb(60, 60, 56),
+            btn_hover: rgb(74, 74, 68),
+            text: Some(rgb(232, 230, 220)),
+        },
+    }
+}
+
+/// Apply the theme to the context for the given skin and mode.
+pub fn apply(ctx: &egui::Context, skin: Skin, dark: bool) {
+    let Palette {
+        accent,
+        panel,
+        window,
+        extreme,
+        faint,
+        border,
+        btn,
+        btn_hover,
+        text,
+    } = palette(skin, dark);
 
     let mut v = if dark {
         Visuals::dark()
@@ -17,32 +100,11 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
         Visuals::light()
     };
 
-    let (panel, window, extreme, faint, border, btn, btn_hover) = if dark {
-        (
-            Color32::from_rgb(30, 30, 32),
-            Color32::from_rgb(38, 38, 41),
-            Color32::from_rgb(22, 22, 24),
-            Color32::from_rgb(44, 44, 47),
-            Color32::from_rgb(58, 58, 63),
-            Color32::from_rgb(52, 52, 56),
-            Color32::from_rgb(64, 64, 69),
-        )
-    } else {
-        (
-            Color32::from_rgb(246, 246, 248),
-            Color32::from_rgb(255, 255, 255),
-            Color32::from_rgb(255, 255, 255),
-            Color32::from_rgb(236, 236, 240),
-            Color32::from_rgb(220, 220, 226),
-            Color32::from_rgb(255, 255, 255),
-            Color32::from_rgb(244, 244, 247),
-        )
-    };
-
     v.panel_fill = panel;
     v.window_fill = window;
     v.extreme_bg_color = extreme;
     v.faint_bg_color = faint;
+    v.override_text_color = text;
     v.window_rounding = Rounding::same(12.0);
     v.window_stroke = Stroke::new(1.0_f32, border);
     v.selection.bg_fill = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 90);

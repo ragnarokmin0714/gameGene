@@ -29,6 +29,8 @@ pub struct Tr {
     pub theme_system: &'static str,
     pub theme_light: &'static str,
     pub theme_dark: &'static str,
+    pub theme_claude: &'static str,
+    pub theme_claude_dark: &'static str,
     pub not_attached: &'static str,
 
     pub processes: &'static str,
@@ -53,6 +55,7 @@ pub struct Tr {
     pub results: &'static str,
     pub no_scan: &'static str,
     pub add_table: &'static str,
+    pub row_hint: &'static str,
 
     pub cheat_table: &'static str,
     pub save: &'static str,
@@ -95,6 +98,8 @@ static EN: Tr = Tr {
     theme_system: "System",
     theme_light: "Light",
     theme_dark: "Dark",
+    theme_claude: "Claude",
+    theme_claude_dark: "Claude Dark",
     not_attached: "• not attached",
 
     processes: "Processes",
@@ -119,6 +124,7 @@ static EN: Tr = Tr {
     results: "Results",
     no_scan: "No scan yet.",
     add_table: "+ Table",
+    row_hint: "Double-click to add · right-click for more",
 
     cheat_table: "Cheat table",
     save: "Save…",
@@ -161,6 +167,8 @@ static ZH: Tr = Tr {
     theme_system: "跟隨系統",
     theme_light: "淺色",
     theme_dark: "深色",
+    theme_claude: "Claude",
+    theme_claude_dark: "Claude 深色",
     not_attached: "• 未連接",
 
     processes: "處理程序",
@@ -185,6 +193,7 @@ static ZH: Tr = Tr {
     results: "結果",
     no_scan: "尚未掃描。",
     add_table: "+ 加入表",
+    row_hint: "雙擊加入 · 右鍵更多選項",
 
     cheat_table: "修改表",
     save: "儲存…",

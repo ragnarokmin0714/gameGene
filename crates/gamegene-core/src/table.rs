@@ -122,6 +122,10 @@ impl TableEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheatTable {
     pub version: u32,
+    /// GameGene version that last wrote this file, e.g. "0.4.1". Recorded for
+    /// diagnostics; not enforced on load (older files simply have it empty).
+    #[serde(default)]
+    pub app_version: String,
     /// Optional note about which game this table is for.
     #[serde(default)]
     pub game_hint: String,
@@ -135,6 +139,7 @@ impl Default for CheatTable {
     fn default() -> Self {
         CheatTable {
             version: TABLE_FORMAT_VERSION,
+            app_version: env!("CARGO_PKG_VERSION").to_owned(),
             game_hint: String::new(),
             entries: Vec::new(),
             next_id: 1,

@@ -75,12 +75,29 @@ impl ScanMode {
     }
 }
 
-/// Theme selection: follow the OS, or force one.
+/// Theme selection: an Apple skin (follow OS / forced light / forced dark) or a
+/// warm Claude skin (light / dark).
 #[derive(Clone, Copy, PartialEq)]
 enum ThemeChoice {
     System,
     Light,
     Dark,
+    Claude,
+    ClaudeDark,
+}
+
+impl ThemeChoice {
+    /// Resolve to the concrete (skin, dark) to paint. `sys_dark` is the OS
+    /// preference, used only by [`ThemeChoice::System`].
+    fn resolve(self, sys_dark: bool) -> (theme::Skin, bool) {
+        match self {
+            ThemeChoice::System => (theme::Skin::Apple, sys_dark),
+            ThemeChoice::Light => (theme::Skin::Apple, false),
+            ThemeChoice::Dark => (theme::Skin::Apple, true),
+            ThemeChoice::Claude => (theme::Skin::Claude, false),
+            ThemeChoice::ClaudeDark => (theme::Skin::Claude, true),
+        }
+    }
 }
 
 /// How the "Find" box interprets its query.
@@ -127,7 +144,7 @@ pub struct GameGeneApp {
 
     // Chrome
     theme: ThemeChoice,
-    applied_dark: Option<bool>,
+    applied_theme: Option<(theme::Skin, bool)>,
     lang: Lang,
     status: String,
     last_freeze: Instant,
@@ -162,7 +179,7 @@ impl GameGeneApp {
             hex_write_type: ValueType::I32,
             hex_write_text: String::new(),
             theme: ThemeChoice::System,
-            applied_dark: None,
+            applied_theme: None,
             lang: Lang::En,
             status: format!("Ready — {BACKEND_NAME}"),
             last_freeze: Instant::now(),
@@ -294,14 +311,11 @@ impl GameGeneApp {
 impl eframe::App for GameGeneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Resolve and apply the theme only when it actually changes.
-        let dark = match self.theme {
-            ThemeChoice::System => ctx.style().visuals.dark_mode,
-            ThemeChoice::Light => false,
-            ThemeChoice::Dark => true,
-        };
-        if self.applied_dark != Some(dark) {
-            theme::apply(ctx, dark);
-            self.applied_dark = Some(dark);
+        let sys_dark = ctx.style().visuals.dark_mode;
+        let resolved = self.theme.resolve(sys_dark);
+        if self.applied_theme != Some(resolved) {
+            theme::apply(ctx, resolved.0, resolved.1);
+            self.applied_theme = Some(resolved);
         }
 
         // Track the foreground game so "Detect game" can lock onto it. Ignore
@@ -343,6 +357,11 @@ impl GameGeneApp {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.heading(APP_NAME);
+                ui.label(
+                    RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                        .weak()
+                        .small(),
+                );
                 ui.label(RichText::new(tr.tagline).weak());
                 ui.label(
                     RichText::new(format!(
@@ -368,6 +387,8 @@ impl GameGeneApp {
                             ThemeChoice::System => tr.theme_system,
                             ThemeChoice::Light => tr.theme_light,
                             ThemeChoice::Dark => tr.theme_dark,
+                            ThemeChoice::Claude => tr.theme_claude,
+                            ThemeChoice::ClaudeDark => tr.theme_claude_dark,
                         })
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
@@ -381,6 +402,16 @@ impl GameGeneApp {
                                 tr.theme_light,
                             );
                             ui.selectable_value(&mut self.theme, ThemeChoice::Dark, tr.theme_dark);
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::Claude,
+                                tr.theme_claude,
+                            );
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::ClaudeDark,
+                                tr.theme_claude_dark,
+                            );
                         });
                     if self.source.is_some() {
                         ui.colored_label(
@@ -636,6 +667,7 @@ impl GameGeneApp {
             ui.strong(tr.results);
 
             let mut add_addr = None;
+            let mut goto_addr = None;
             let src = self.source.as_deref();
             let vt = self.value_type;
             egui::ScrollArea::vertical()
@@ -648,7 +680,30 @@ impl GameGeneApp {
                             .striped(true)
                             .show(ui, |ui| {
                                 for m in session.display_matches() {
-                                    ui.monospace(format!("{:#014x}", m.address));
+                                    // Double-click a row to add it; right-click for
+                                    // a menu (add / open in the memory viewer).
+                                    let resp = ui
+                                        .add(
+                                            egui::Label::new(
+                                                RichText::new(format!("{:#014x}", m.address))
+                                                    .monospace(),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_text(tr.row_hint);
+                                    if resp.double_clicked() {
+                                        add_addr = Some(m.address);
+                                    }
+                                    resp.context_menu(|ui| {
+                                        if ui.button(tr.add_table).clicked() {
+                                            add_addr = Some(m.address);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button(tr.mem_view).clicked() {
+                                            goto_addr = Some(m.address);
+                                            ui.close_menu();
+                                        }
+                                    });
                                     let now = src
                                         .and_then(|s| read_value(s, m.address, vt))
                                         .map(|v| v.display())
@@ -672,6 +727,12 @@ impl GameGeneApp {
 
             if let Some(addr) = add_addr {
                 self.add_to_table(addr);
+            }
+            if let Some(a) = goto_addr {
+                self.show_hex = true;
+                self.hex_addr = a & !0xF;
+                self.hex_sel = Some(a);
+                self.hex_addr_input = format!("{a:X}");
             }
         });
     }
@@ -990,6 +1051,9 @@ impl GameGeneApp {
             ))
             .save_file()
         {
+            // Stamp the current app version so the file records who wrote it,
+            // even if this table was loaded from an older build.
+            self.table.app_version = env!("CARGO_PKG_VERSION").to_owned();
             match self.table.save(&path) {
                 Ok(()) => self.status = format!("Saved {}", path.display()),
                 Err(e) => self.status = format!("Save failed: {e}"),

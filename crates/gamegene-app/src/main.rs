@@ -14,7 +14,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1000.0, 680.0])
             .with_min_inner_size([780.0, 520.0])
-            .with_title(APP_NAME)
+            .with_title(format!("{APP_NAME} v{}", env!("CARGO_PKG_VERSION")))
             .with_icon(icon::icon_data()),
         follow_system_theme: true,
         ..Default::default()

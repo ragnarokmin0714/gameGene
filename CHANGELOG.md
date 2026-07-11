@@ -7,6 +7,16 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Claude theme.** Two extra options in the theme picker — "Claude" and
+  "Claude Dark" — with a warm cream / terracotta palette alongside the existing
+  Apple (System / Light / Dark) skins.
+- The app version is shown next to the title and in the window title bar, and is
+  recorded in saved cheat-table files (`app_version` field).
+- Results list is now Cheat-Engine-like to work with: **double-click** a row to
+  add it to the table, or **right-click** for a menu (add to table / open in the
+  memory viewer).
+
 ## [0.4.1]
 
 ### Added
