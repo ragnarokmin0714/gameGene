@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Added
 - **Memory viewer** (toggle "Memory"): a hex/ASCII grid over a windowed read of
   the target, live-refreshed. Click a byte to see it decoded as every value
