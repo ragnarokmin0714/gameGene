@@ -13,6 +13,7 @@ use gamegene_core::MemorySource;
 use gamegene_platform::{attach, foreground_process, list_processes, ProcessInfo, BACKEND_NAME};
 use std::time::{Duration, Instant};
 
+use crate::fonts;
 use crate::i18n::{self, Lang};
 use crate::theme;
 
@@ -145,6 +146,11 @@ pub struct GameGeneApp {
     // Chrome
     theme: ThemeChoice,
     applied_theme: Option<(theme::Skin, bool)>,
+    /// System CJK font bytes, loaded once; reused on every font rebuild.
+    cjk_font: Option<Vec<u8>>,
+    /// Whether the serif face is currently installed, to avoid rebuilding fonts
+    /// every frame.
+    applied_serif: Option<bool>,
     lang: Lang,
     status: String,
     last_freeze: Instant,
@@ -153,8 +159,11 @@ pub struct GameGeneApp {
 
 impl GameGeneApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Register a CJK font up front so Traditional Chinese can render.
-        i18n::install_cjk_font(&cc.egui_ctx);
+        // Install fonts up front: default sans + a CJK fallback so Traditional
+        // Chinese renders. The serif face is swapped in later if the Claude
+        // theme is chosen.
+        let cjk_font = fonts::load_cjk();
+        fonts::apply(&cc.egui_ctx, false, &cjk_font);
         GameGeneApp {
             processes: list_processes(),
             filter: String::new(),
@@ -180,6 +189,8 @@ impl GameGeneApp {
             hex_write_text: String::new(),
             theme: ThemeChoice::System,
             applied_theme: None,
+            cjk_font,
+            applied_serif: Some(false),
             lang: Lang::En,
             status: format!("Ready — {BACKEND_NAME}"),
             last_freeze: Instant::now(),
@@ -316,6 +327,12 @@ impl eframe::App for GameGeneApp {
         if self.applied_theme != Some(resolved) {
             theme::apply(ctx, resolved.0, resolved.1);
             self.applied_theme = Some(resolved);
+        }
+        // The Claude skin uses a serif face; swap fonts only on change.
+        let serif = resolved.0 == theme::Skin::Claude;
+        if self.applied_serif != Some(serif) {
+            fonts::apply(ctx, serif, &self.cjk_font);
+            self.applied_serif = Some(serif);
         }
 
         // Track the foreground game so "Detect game" can lock onto it. Ignore
@@ -909,29 +926,8 @@ impl GameGeneApp {
             .open(&mut open)
             .resizable(true)
             .default_width(560.0)
+            .default_height(480.0)
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("0x");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.hex_addr_input)
-                            .desired_width(130.0)
-                            .hint_text(tr.mem_addr_hint),
-                    );
-                    if ui.button(tr.mem_goto).clicked() {
-                        let s = self.hex_addr_input.trim().trim_start_matches("0x");
-                        if let Ok(a) = u64::from_str_radix(s, 16) {
-                            self.hex_addr = a & !0xF; // align to a 16-byte row
-                        }
-                    }
-                    if ui.small_button("- 256").clicked() {
-                        self.hex_addr = self.hex_addr.saturating_sub(256);
-                    }
-                    if ui.small_button("+ 256").clicked() {
-                        self.hex_addr = self.hex_addr.saturating_add(256);
-                    }
-                });
-                ui.separator();
-
                 // Windowed read: only the visible 256 bytes, so this is cheap.
                 let mut buf = [0u8; 256];
                 let got = self
@@ -940,72 +936,130 @@ impl GameGeneApp {
                     .map(|s| s.read(self.hex_addr, &mut buf).unwrap_or(0))
                     .unwrap_or(0);
 
-                egui::Grid::new("hexgrid")
-                    .spacing([3.0, 2.0])
-                    .show(ui, |ui| {
-                        for row in 0..16usize {
-                            let row_addr = self.hex_addr + (row * 16) as u64;
-                            ui.monospace(format!("{row_addr:012X}"));
-                            for col in 0..16usize {
-                                let i = row * 16 + col;
-                                let addr = self.hex_addr + i as u64;
-                                if i < got {
-                                    let selected = self.hex_sel == Some(addr);
-                                    if ui
-                                        .selectable_label(selected, format!("{:02X}", buf[i]))
-                                        .clicked()
-                                    {
-                                        new_sel = Some(addr);
-                                    }
-                                } else {
-                                    ui.monospace("··");
-                                }
-                            }
-                            let ascii: String = (0..16)
-                                .map(|col| {
-                                    let i = row * 16 + col;
-                                    if i < got {
-                                        ascii_char(buf[i])
-                                    } else {
-                                        ' '
-                                    }
-                                })
-                                .collect();
-                            ui.monospace(ascii);
-                            ui.end_row();
-                        }
-                    });
-
-                ui.separator();
-                if let Some(sel) = self.hex_sel {
-                    ui.monospace(format!("@ {sel:#014X}"));
-                    let off = sel.wrapping_sub(self.hex_addr) as usize;
-                    if off < got {
-                        for (ty, v) in interpret(&buf[off..got]) {
-                            ui.monospace(format!("{:>7}: {}", ty.label(), v.display()));
-                        }
-                    }
+                // Fixed address bar at the top.
+                egui::TopBottomPanel::top("hex_top").show_inside(ui, |ui| {
+                    ui.add_space(2.0);
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_source("hexwt")
-                            .selected_text(self.hex_write_type.label())
-                            .show_ui(ui, |ui| {
-                                for t in ValueType::ALL {
-                                    ui.selectable_value(&mut self.hex_write_type, t, t.label());
-                                }
-                            });
+                        ui.label("0x");
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.hex_write_text)
-                                .desired_width(110.0)
-                                .hint_text(tr.set_hint),
+                            egui::TextEdit::singleline(&mut self.hex_addr_input)
+                                .desired_width(130.0)
+                                .hint_text(tr.mem_addr_hint),
                         );
-                        if ui.button(tr.mem_write).clicked() {
-                            do_write = Some(sel);
+                        if ui.button(tr.mem_goto).clicked() {
+                            let s = self.hex_addr_input.trim().trim_start_matches("0x");
+                            if let Ok(a) = u64::from_str_radix(s, 16) {
+                                self.hex_addr = a & !0xF; // align to a 16-byte row
+                            }
                         }
-                        if ui.small_button(tr.add_table).clicked() {
-                            add_addr = Some(sel);
+                        if ui.small_button("- 256").clicked() {
+                            self.hex_addr = self.hex_addr.saturating_sub(256);
+                        }
+                        if ui.small_button("+ 256").clicked() {
+                            self.hex_addr = self.hex_addr.saturating_add(256);
                         }
                     });
-                }
+                    ui.add_space(2.0);
+                });
+
+                // Fixed inspector / editor at the bottom.
+                egui::TopBottomPanel::bottom("hex_bottom").show_inside(ui, |ui| {
+                    ui.add_space(4.0);
+                    if let Some(sel) = self.hex_sel {
+                        ui.monospace(format!("@ {sel:#014X}"));
+                        let off = sel.wrapping_sub(self.hex_addr) as usize;
+                        if off < got {
+                            // Each type on its own row; long values (f64) are
+                            // truncated with the full value on hover, so they
+                            // never blow out the panel width.
+                            egui::Grid::new("hex_interp")
+                                .num_columns(2)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    for (ty, v) in interpret(&buf[off..got]) {
+                                        ui.monospace(ty.label());
+                                        let full = v.display();
+                                        ui.add(
+                                            egui::Label::new(RichText::new(&full).monospace())
+                                                .truncate(),
+                                        )
+                                        .on_hover_text(&full);
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_source("hexwt")
+                                .selected_text(self.hex_write_type.label())
+                                .show_ui(ui, |ui| {
+                                    for t in ValueType::ALL {
+                                        ui.selectable_value(&mut self.hex_write_type, t, t.label());
+                                    }
+                                });
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.hex_write_text)
+                                    .desired_width(110.0)
+                                    .hint_text(tr.set_hint),
+                            );
+                            if ui.button(tr.mem_write).clicked() {
+                                do_write = Some(sel);
+                            }
+                            if ui.small_button(tr.add_table).clicked() {
+                                add_addr = Some(sel);
+                            }
+                        });
+                    } else {
+                        ui.label(RichText::new(tr.mem_pick_hint).weak());
+                    }
+                    ui.add_space(2.0);
+                });
+
+                // Scrollable hex/ASCII grid in the middle — scrolls both ways so
+                // a narrow window shows scrollbars instead of overflowing.
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            egui::Grid::new("hexgrid")
+                                .spacing([3.0, 2.0])
+                                .show(ui, |ui| {
+                                    for row in 0..16usize {
+                                        let row_addr = self.hex_addr + (row * 16) as u64;
+                                        ui.monospace(format!("{row_addr:012X}"));
+                                        for col in 0..16usize {
+                                            let i = row * 16 + col;
+                                            let addr = self.hex_addr + i as u64;
+                                            if i < got {
+                                                let selected = self.hex_sel == Some(addr);
+                                                if ui
+                                                    .selectable_label(
+                                                        selected,
+                                                        format!("{:02X}", buf[i]),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    new_sel = Some(addr);
+                                                }
+                                            } else {
+                                                ui.monospace("··");
+                                            }
+                                        }
+                                        let ascii: String = (0..16)
+                                            .map(|col| {
+                                                let i = row * 16 + col;
+                                                if i < got {
+                                                    ascii_char(buf[i])
+                                                } else {
+                                                    ' '
+                                                }
+                                            })
+                                            .collect();
+                                        ui.monospace(ascii);
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                });
             });
 
         if let Some(a) = new_sel {

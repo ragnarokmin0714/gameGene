@@ -1,10 +1,5 @@
-//! UI language strings and the CJK font loader.
-//!
-//! egui's bundled fonts contain no CJK glyphs, so [`install_cjk_font`] must find
-//! and register a system Chinese font or Traditional Chinese renders as blank
-//! boxes. English works regardless.
-
-use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
+//! UI language strings. Font installation (including the CJK fallback) lives in
+//! the [`crate::fonts`] module.
 
 /// Selectable UI language.
 #[derive(Clone, Copy, PartialEq)]
@@ -80,6 +75,7 @@ pub struct Tr {
     pub mem_goto: &'static str,
     pub mem_write: &'static str,
     pub mem_addr_hint: &'static str,
+    pub mem_pick_hint: &'static str,
     pub entry_goto_hint: &'static str,
 
     pub m_exact: &'static str,
@@ -149,6 +145,7 @@ static EN: Tr = Tr {
     mem_goto: "Go",
     mem_write: "Write",
     mem_addr_hint: "address (hex)",
+    mem_pick_hint: "Click a byte above to inspect and edit it.",
     entry_goto_hint: "Open the memory viewer at this address",
 
     m_exact: "Exact value",
@@ -218,6 +215,7 @@ static ZH: Tr = Tr {
     mem_goto: "前往",
     mem_write: "寫入",
     mem_addr_hint: "位址 (hex)",
+    mem_pick_hint: "點上方任一位元組即可檢視與編輯。",
     entry_goto_hint: "在記憶體檢視器開啟此位址",
 
     m_exact: "精確值",
@@ -230,43 +228,3 @@ static ZH: Tr = Tr {
     m_increased: "增加",
     m_decreased: "減少",
 };
-
-/// Find and register a system CJK font as a fallback so Chinese renders.
-/// Returns the path that was loaded, or `None` if no candidate existed.
-pub fn install_cjk_font(ctx: &egui::Context) -> Option<String> {
-    const CANDIDATES: &[&str] = &[
-        // Windows — always present on Windows 10/11.
-        r"C:\Windows\Fonts\msjh.ttc",
-        r"C:\Windows\Fonts\msjhl.ttc",
-        r"C:\Windows\Fonts\msyh.ttc",
-        // Linux / SteamOS — Noto CJK / WenQuanYi.
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        // macOS.
-        "/System/Library/Fonts/PingFang.ttc",
-    ];
-
-    for path in CANDIDATES {
-        let Ok(bytes) = std::fs::read(path) else {
-            continue;
-        };
-        let mut fonts = FontDefinitions::default();
-        fonts
-            .font_data
-            .insert("cjk".to_owned(), FontData::from_owned(bytes));
-        // Append as the last fallback for both families, so Latin glyphs still
-        // come from egui's default font and only missing (CJK) ones fall here.
-        for family in [FontFamily::Proportional, FontFamily::Monospace] {
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .push("cjk".to_owned());
-        }
-        ctx.set_fonts(fonts);
-        return Some((*path).to_owned());
-    }
-    None
-}

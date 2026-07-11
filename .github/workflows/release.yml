@@ -22,14 +22,24 @@ jobs:
         include:
           - os: windows-latest
             bin: gamegene.exe
-            asset: gamegene-windows-x86_64.zip
+            label: windows-x86_64
+            ext: zip
           - os: ubuntu-latest
             bin: gamegene
-            asset: gamegene-linux-x86_64.tar.gz
+            label: linux-x86_64
+            ext: tar.gz
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      # Name archives with the release version, e.g. gamegene-0.5.0-linux-x86_64.tar.gz.
+      # The tag is like "v0.5.0"; strip the leading "v" for the version.
+      - name: Compute asset name
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "ASSET=gamegene-${version}-${{ matrix.label }}.${{ matrix.ext }}" >> "$GITHUB_ENV"
 
       - name: Install GUI build dependencies (Linux)
         if: runner.os == 'Linux'
@@ -44,11 +54,11 @@ jobs:
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path target/release/${{ matrix.bin }} -DestinationPath ${{ matrix.asset }}
+        run: Compress-Archive -Path target/release/${{ matrix.bin }} -DestinationPath $env:ASSET
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf ${{ matrix.asset }} -C target/release ${{ matrix.bin }}
+        run: tar -czf "$ASSET" -C target/release ${{ matrix.bin }}
 
       # Publish with the GitHub CLI (preinstalled on runners) instead of a
       # third-party Node action, so there is nothing to keep bumping as GitHub
@@ -61,4 +71,4 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           gh release create "$tag" --title "$tag" --generate-notes 2>/dev/null || true
-          gh release upload "$tag" "${{ matrix.asset }}" --clobber
+          gh release upload "$tag" "$ASSET" --clobber

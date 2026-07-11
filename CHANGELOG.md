@@ -7,6 +7,21 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.5.1]
+
+### Added
+- The Claude theme now also uses a serif typeface (bundled Liberation Serif,
+  SIL OFL 1.1 — see `crates/gamegene-app/assets/serif.LICENSE.txt`), for a
+  warmer, more editorial feel closer to Claude's own look.
+
+### Changed
+- Memory viewer layout: the address bar (top) and the inspector/editor (bottom)
+  are now fixed, while the hex/ASCII grid in the middle scrolls both ways — a
+  narrow window shows scrollbars instead of overflowing. Long readings (e.g. an
+  `f64`) are truncated with the full value shown on hover.
+- Release archives now include the version, e.g.
+  `gamegene-0.5.1-linux-x86_64.tar.gz`.
+
 ## [0.5.0]
 
 ### Added
