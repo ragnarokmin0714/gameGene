@@ -77,6 +77,7 @@ pub struct Tr {
     pub mem_goto: &'static str,
     pub mem_write: &'static str,
     pub mem_addr_hint: &'static str,
+    pub entry_goto_hint: &'static str,
 
     pub m_exact: &'static str,
     pub m_greater: &'static str,
@@ -142,6 +143,7 @@ static EN: Tr = Tr {
     mem_goto: "Go",
     mem_write: "Write",
     mem_addr_hint: "address (hex)",
+    entry_goto_hint: "Open the memory viewer at this address",
 
     m_exact: "Exact value",
     m_greater: "Greater than",
@@ -207,6 +209,7 @@ static ZH: Tr = Tr {
     mem_goto: "前往",
     mem_write: "寫入",
     mem_addr_hint: "位址 (hex)",
+    entry_goto_hint: "在記憶體檢視器開啟此位址",
 
     m_exact: "精確值",
     m_greater: "大於",

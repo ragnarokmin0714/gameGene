@@ -7,6 +7,20 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.4.1]
+
+### Added
+- Cheat-table entries now show their current memory address (in accent colour)
+  with a "Memory" button that opens the memory viewer focused on that address,
+  so entries are easy to tell apart when editing more than one.
+
+### Fixed
+- The results list no longer shakes when there are many matches: the live value
+  column is a fixed width and the scroll area no longer auto-shrinks, so a value
+  changing length can't reflow the grid each frame.
+- "First scan" is now disabled once a scan is in progress — use "Reset" to start
+  over — so an accidental click can't discard the narrowed results.
+
 ## [0.4.0]
 
 ### Added

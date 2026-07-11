@@ -554,9 +554,13 @@ impl GameGeneApp {
             });
 
             ui.horizontal(|ui| {
-                if ui.button(tr.first_scan).clicked() {
-                    self.do_first_scan();
-                }
+                // Once a scan is in progress, first scan is disabled until Reset
+                // so an accidental click can't wipe the narrowed results.
+                ui.add_enabled_ui(self.session.is_none(), |ui| {
+                    if ui.button(tr.first_scan).clicked() {
+                        self.do_first_scan();
+                    }
+                });
                 ui.add_enabled_ui(self.session.is_some(), |ui| {
                     if ui.button(tr.next_scan).clicked() {
                         self.do_next_scan();
@@ -636,6 +640,7 @@ impl GameGeneApp {
             let vt = self.value_type;
             egui::ScrollArea::vertical()
                 .max_height(ui.available_height())
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
                     if let Some(session) = &self.session {
                         egui::Grid::new("results")
@@ -648,7 +653,12 @@ impl GameGeneApp {
                                         .and_then(|s| read_value(s, m.address, vt))
                                         .map(|v| v.display())
                                         .unwrap_or_else(|| "—".into());
-                                    ui.label(now);
+                                    // Fixed width so a live value changing length
+                                    // does not reflow the grid and shake the list.
+                                    ui.add_sized(
+                                        [90.0, ui.spacing().interact_size.y],
+                                        egui::Label::new(now),
+                                    );
                                     if ui.small_button(tr.add_table).clicked() {
                                         add_addr = Some(m.address);
                                     }
@@ -689,6 +699,7 @@ impl GameGeneApp {
                 let mut remove_id = None;
                 let mut apply_id = None;
                 let mut pin_id = None;
+                let mut goto_addr = None;
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for entry in &mut self.table.entries {
@@ -701,6 +712,29 @@ impl GameGeneApp {
                                 ui.checkbox(&mut entry.frozen, tr.freeze);
                                 if ui.small_button("×").clicked() {
                                     remove_id = Some(entry.id);
+                                }
+                            });
+                            // Show the entry's current address so it can be told
+                            // apart from others, and jump the memory viewer there.
+                            ui.horizontal(|ui| {
+                                let addr = match &entry.locator {
+                                    Locator::Absolute(a) => Some(*a),
+                                    _ => src.and_then(|s| entry.locator.resolve(s)),
+                                };
+                                if let Some(a) = addr {
+                                    ui.monospace(
+                                        RichText::new(format!("{a:#014X}"))
+                                            .color(egui::Color32::from_rgb(0, 122, 255)),
+                                    );
+                                    if ui
+                                        .small_button(tr.mem_view)
+                                        .on_hover_text(tr.entry_goto_hint)
+                                        .clicked()
+                                    {
+                                        goto_addr = Some(a);
+                                    }
+                                } else {
+                                    ui.label(RichText::new("—").weak());
                                 }
                             });
                             ui.horizontal(|ui| {
@@ -746,6 +780,12 @@ impl GameGeneApp {
                     }
                 });
 
+                if let Some(a) = goto_addr {
+                    self.show_hex = true;
+                    self.hex_addr = a & !0xF;
+                    self.hex_sel = Some(a);
+                    self.hex_addr_input = format!("{a:X}");
+                }
                 if let Some(id) = remove_id {
                     self.table.remove(id);
                 }
