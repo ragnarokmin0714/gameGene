@@ -3,19 +3,21 @@
 Planned work, so a future version bump can be decided from one document.
 Shipped changes are recorded in [CHANGELOG.md](CHANGELOG.md), not here.
 
-## Next: finish the memory-editing story (item / move lists)
+## Memory-editing story (item / move lists) — shipped
 
-The memory viewer (hex view) landed first, and **structure dissection /
-array-stride detection shipped in 0.7.0** (the "Array" window: detect the
-record size, lay the array out as rows, infer Int32/Float fields, add cells to
-the table). What remains to make bulk item/move editing practical:
+The pieces for bulk item/move editing are now in: the memory viewer (hex view),
+**structure dissection / array-stride detection (0.7.0)**, and the **fill /
+repeat writer (0.8.0)** — fixed value or incrementing id across a detected
+array, with preview, count cap, and undo. Remaining niceties:
 
-- **Fill / repeat writer.** Write a pattern across a detected array in one go:
-  a fixed value, an incrementing id (`start, step, count`), or copy-one-slot to
-  all. This is GameGene's stand-in for Cheat Engine's Lua scripting for mass
-  edits. **Must** preview the exact addresses + bytes before writing, cap the
-  count, require confirmation, and back up the original bytes so it is
-  reversible.
+- Copy-one-slot-to-all fill (copy a whole record's bytes to every record), on
+  top of the current per-field fixed/increment fills.
+
+## Multi-value / group scan
+
+- Search for several values that occur close together (Cheat Engine's "group"
+  or "commonality" scan), e.g. find a region holding `100`, `50`, and `12`
+  within N bytes — useful for locating a struct when you know several fields.
 
 ## Memory viewer enhancements
 

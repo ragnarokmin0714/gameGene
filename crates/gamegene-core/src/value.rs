@@ -191,8 +191,19 @@ impl ScanValue {
             ScanValue::U16(v) => v.to_string(),
             ScanValue::U32(v) => v.to_string(),
             ScanValue::U64(v) => v.to_string(),
-            ScanValue::F32(v) => v.to_string(),
-            ScanValue::F64(v) => v.to_string(),
+            // Show a decimal point so floats read as floats: `100.0`, not `100`.
+            ScanValue::F32(v) => float_str(v.to_string(), v.is_finite()),
+            ScanValue::F64(v) => float_str(v.to_string(), v.is_finite()),
         }
+    }
+}
+
+/// Append `.0` to a whole-number float so it is visibly a float. Each float
+/// type formats itself first (no widening, which would expose f32 rounding).
+fn float_str(s: String, finite: bool) -> String {
+    if finite && !s.contains(['.', 'e', 'E']) {
+        format!("{s}.0")
+    } else {
+        s
     }
 }

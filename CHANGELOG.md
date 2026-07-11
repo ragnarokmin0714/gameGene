@@ -7,6 +7,26 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.8.0]
+
+### Added
+- **Fill / bulk write** in the Array window: set one field across every record at
+  once — a fixed value, or an incrementing integer (start + step). It always
+  **previews** the exact addresses and bytes first, **caps** the count, and backs
+  up the originals so **Undo** restores them. This completes the item/move
+  bulk-editing story.
+
+### Changed
+- Float values now display with a decimal point (`100.0`, not `100`) so they read
+  as floats.
+- Scan results truncate long values (many decimals) to keep the column steady;
+  the full value shows on hover.
+
+### Fixed
+- "Between" inputs are tidied before scanning: a missing upper bound is filled
+  with lower + 1 (`11…` → `11…12`), and a reversed range is swapped
+  (`28…11` → `11…28`).
+
 ## [0.7.0]
 
 ### Added

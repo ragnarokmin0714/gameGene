@@ -7,6 +7,7 @@
 
 pub mod constants;
 pub mod error;
+pub mod fill;
 pub mod find;
 pub mod hexview;
 pub mod mock;
@@ -18,6 +19,7 @@ pub mod table;
 pub mod value;
 
 pub use error::{MemError, ScanError, TableError};
+pub use fill::{plan_fixed, plan_increment, MAX_FILL};
 pub use find::{find_pattern, parse_aob, text_pattern, Pattern, TextEncoding};
 pub use pointer::{pointer_scan, PointerScanOptions};
 pub use process::{MemoryRegion, MemorySource, ModuleInfo};

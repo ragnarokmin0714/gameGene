@@ -3,6 +3,7 @@
 
 use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
+use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
@@ -166,6 +167,16 @@ pub struct GameGeneApp {
     struct_stride_input: String,
     struct_rows: usize,
     struct_fields: Vec<Field>,
+    // Fill / bulk write (operates on the dissected array)
+    fill_field: usize,
+    fill_increment: bool,
+    fill_value: String,
+    fill_step: String,
+    fill_count: usize,
+    /// Previewed writes, shown before applying.
+    fill_plan: Vec<(u64, Vec<u8>)>,
+    /// Original bytes from the last applied fill, for undo.
+    fill_backup: Vec<(u64, Vec<u8>)>,
 
     // Chrome
     theme: ThemeChoice,
@@ -232,6 +243,13 @@ impl GameGeneApp {
             struct_stride_input: String::new(),
             struct_rows: 16,
             struct_fields: Vec::new(),
+            fill_field: 0,
+            fill_increment: false,
+            fill_value: String::new(),
+            fill_step: "1".to_owned(),
+            fill_count: 0,
+            fill_plan: Vec::new(),
+            fill_backup: Vec::new(),
             theme: saved.theme,
             applied_theme: None,
             cjk_font,
@@ -268,7 +286,38 @@ impl GameGeneApp {
         })
     }
 
+    /// Tidy up "between" inputs before scanning: fill a missing upper bound with
+    /// lower+1, and swap the two if they are the wrong way round.
+    fn normalize_between_inputs(&mut self) {
+        if self.mode != ScanMode::Between {
+            return;
+        }
+        let ty = self.value_type;
+        let is_float = matches!(ty, ValueType::F32 | ValueType::F64);
+
+        // Fill an empty upper bound with lower + 1 so "11…" becomes "11…12".
+        if self.value2_text.trim().is_empty() {
+            if let Ok(v) = ScanValue::parse(ty, self.value_text.trim()) {
+                self.value2_text = if is_float {
+                    format!("{}", v.as_f64() + 1.0)
+                } else {
+                    format!("{}", v.as_f64() as i64 + 1)
+                };
+            }
+        }
+        // Swap if reversed so "28…11" becomes "11…28".
+        if let (Ok(a), Ok(b)) = (
+            ScanValue::parse(ty, self.value_text.trim()),
+            ScanValue::parse(ty, self.value2_text.trim()),
+        ) {
+            if a.as_f64() > b.as_f64() {
+                std::mem::swap(&mut self.value_text, &mut self.value2_text);
+            }
+        }
+    }
+
     fn do_first_scan(&mut self) {
+        self.normalize_between_inputs();
         let Some(src) = self.source.as_deref() else {
             self.status = "Attach to a process first.".into();
             return;
@@ -290,6 +339,7 @@ impl GameGeneApp {
     }
 
     fn do_next_scan(&mut self) {
+        self.normalize_between_inputs();
         let compare = match self.build_compare() {
             Ok(c) => c,
             Err(e) => {
@@ -914,11 +964,14 @@ impl GameGeneApp {
                                         .map(|v| v.display())
                                         .unwrap_or_else(|| "—".into());
                                     // Fixed width so a live value changing length
-                                    // does not reflow the grid and shake the list.
+                                    // does not reflow the grid and shake the list;
+                                    // long values (many decimals) truncate, full
+                                    // value on hover.
                                     ui.add_sized(
                                         [90.0, ui.spacing().interact_size.y],
-                                        egui::Label::new(now),
-                                    );
+                                        egui::Label::new(&now).truncate(),
+                                    )
+                                    .on_hover_text(&now);
                                     if ui.small_button(tr.add_table).clicked() {
                                         add_addr = Some(m.address);
                                     }
@@ -1392,6 +1445,111 @@ impl GameGeneApp {
         );
     }
 
+    /// Build the list of writes for the current fill settings, for preview.
+    fn fill_preview(&mut self) {
+        if self.struct_fields.is_empty() || self.struct_stride < 4 {
+            self.status = "Detect an array first.".into();
+            return;
+        }
+        let idx = self.fill_field.min(self.struct_fields.len() - 1);
+        let field = self.struct_fields[idx];
+        let count = if self.fill_count == 0 {
+            self.struct_rows
+        } else {
+            self.fill_count
+        };
+
+        let plan = if self.fill_increment {
+            if matches!(field.ty, ValueType::F32 | ValueType::F64) {
+                self.status = "Increment is for integer fields only.".into();
+                return;
+            }
+            let Ok(start) = self.fill_value.trim().parse::<i64>() else {
+                self.status = "Start must be a whole number.".into();
+                return;
+            };
+            let Ok(step) = self.fill_step.trim().parse::<i64>() else {
+                self.status = "Step must be a whole number.".into();
+                return;
+            };
+            plan_increment(
+                self.struct_base,
+                self.struct_stride,
+                field.offset,
+                field.ty,
+                start,
+                step,
+                count,
+            )
+        } else {
+            let value = match ScanValue::parse(field.ty, self.fill_value.trim()) {
+                Ok(v) => v,
+                Err(e) => {
+                    self.status = e.to_string();
+                    return;
+                }
+            };
+            plan_fixed(
+                self.struct_base,
+                self.struct_stride,
+                field.offset,
+                &value,
+                count,
+            )
+        };
+
+        self.status = format!("Preview: {} write(s). Review, then Apply.", plan.len());
+        self.fill_plan = plan;
+    }
+
+    /// Apply the previewed writes, backing up the original bytes for undo.
+    fn fill_apply(&mut self) {
+        let plan = std::mem::take(&mut self.fill_plan);
+        if plan.is_empty() {
+            self.status = "Preview a fill first.".into();
+            return;
+        }
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            self.fill_plan = plan;
+            return;
+        };
+        let mut backup = Vec::with_capacity(plan.len());
+        let mut written = 0usize;
+        for (addr, bytes) in &plan {
+            let mut orig = vec![0u8; bytes.len()];
+            if src.read(*addr, &mut orig).unwrap_or(0) == bytes.len() {
+                backup.push((*addr, orig));
+            }
+            if src.write(*addr, bytes).is_ok() {
+                written += 1;
+            }
+        }
+        self.fill_backup = backup;
+        self.status = format!("Wrote {written} value(s) — Undo available");
+    }
+
+    /// Restore the bytes backed up by the last [`fill_apply`].
+    fn fill_undo(&mut self) {
+        let backup = std::mem::take(&mut self.fill_backup);
+        if backup.is_empty() {
+            self.status = "Nothing to undo.".into();
+            return;
+        }
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            self.fill_backup = backup;
+            return;
+        };
+        let mut reverted = 0usize;
+        for (addr, bytes) in &backup {
+            if src.write(*addr, bytes).is_ok() {
+                reverted += 1;
+            }
+        }
+        self.status = format!("Reverted {reverted} value(s)");
+    }
+
     fn struct_window(&mut self, ctx: &egui::Context) {
         if !self.show_struct {
             return;
@@ -1401,6 +1559,9 @@ impl GameGeneApp {
         let mut detect = false;
         let mut apply = false;
         let mut add: Option<(u64, ValueType)> = None;
+        let mut want_preview = false;
+        let mut want_apply_fill = false;
+        let mut want_undo_fill = false;
 
         egui::Window::new(tr.arr_title)
             .open(&mut open)
@@ -1433,6 +1594,101 @@ impl GameGeneApp {
                         ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=256));
                     });
                     ui.label(RichText::new(tr.arr_hint).weak());
+
+                    // Fill / bulk write, collapsed by default.
+                    if !self.struct_fields.is_empty() {
+                        egui::CollapsingHeader::new(tr.fill_title).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(tr.fill_field);
+                                let cur = self.fill_field.min(self.struct_fields.len() - 1);
+                                let cur_f = self.struct_fields[cur];
+                                egui::ComboBox::from_id_source("fill_field")
+                                    .selected_text(format!(
+                                        "+{:X} {}",
+                                        cur_f.offset,
+                                        cur_f.ty.label()
+                                    ))
+                                    .show_ui(ui, |ui| {
+                                        for i in 0..self.struct_fields.len() {
+                                            let f = self.struct_fields[i];
+                                            let lbl = format!("+{:X} {}", f.offset, f.ty.label());
+                                            ui.selectable_value(&mut self.fill_field, i, lbl);
+                                        }
+                                    });
+                                ui.checkbox(&mut self.fill_increment, tr.fill_increment);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(if self.fill_increment {
+                                    tr.fill_start
+                                } else {
+                                    tr.fill_value
+                                });
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.fill_value)
+                                        .desired_width(90.0),
+                                );
+                                if self.fill_increment {
+                                    ui.label(tr.fill_step);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.fill_step)
+                                            .desired_width(50.0),
+                                    );
+                                }
+                                ui.label(tr.fill_count);
+                                ui.add(
+                                    egui::DragValue::new(&mut self.fill_count)
+                                        .range(0..=gamegene_core::fill::MAX_FILL),
+                                );
+                            });
+                            ui.label(RichText::new(tr.fill_count_hint).weak());
+                            ui.horizontal(|ui| {
+                                if ui.button(tr.fill_preview_btn).clicked() {
+                                    want_preview = true;
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !self.fill_plan.is_empty(),
+                                        egui::Button::new(tr.fill_apply_btn),
+                                    )
+                                    .clicked()
+                                {
+                                    want_apply_fill = true;
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !self.fill_backup.is_empty(),
+                                        egui::Button::new(tr.fill_undo_btn),
+                                    )
+                                    .clicked()
+                                {
+                                    want_undo_fill = true;
+                                }
+                            });
+                            if !self.fill_plan.is_empty() {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        self.fill_plan.len(),
+                                        tr.fill_writes
+                                    ))
+                                    .weak(),
+                                );
+                                egui::ScrollArea::vertical()
+                                    .id_source("fill_preview")
+                                    .max_height(90.0)
+                                    .show(ui, |ui| {
+                                        for (addr, bytes) in self.fill_plan.iter().take(64) {
+                                            let hex: String =
+                                                bytes.iter().map(|b| format!("{b:02X} ")).collect();
+                                            ui.monospace(format!(
+                                                "{addr:012X}  {}",
+                                                hex.trim_end()
+                                            ));
+                                        }
+                                    });
+                            }
+                        });
+                    }
                     ui.add_space(2.0);
                 });
 
@@ -1488,6 +1744,15 @@ impl GameGeneApp {
         }
         if let Some((addr, ty)) = add {
             self.add_to_table(addr, ty);
+        }
+        if want_preview {
+            self.fill_preview();
+        }
+        if want_apply_fill {
+            self.fill_apply();
+        }
+        if want_undo_fill {
+            self.fill_undo();
         }
         self.show_struct = open;
     }
