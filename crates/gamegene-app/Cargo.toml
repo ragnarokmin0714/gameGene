@@ -17,3 +17,8 @@ eframe = { version = "0.28", default-features = false, features = [
 ] }
 egui = "0.28"
 rfd = "0.14"
+
+# Embed the icon (and version info) into the Windows .exe so the taskbar,
+# Explorer, and pinned shortcuts use the brand mark, not a default icon.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

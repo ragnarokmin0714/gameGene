@@ -130,10 +130,19 @@ def main():
     dark = build_png(DARK)
     light.save(os.path.join(ROOT, "assets", "gamegene-logo.png"))
     dark.save(os.path.join(ROOT, "assets", "gamegene-logo-dark.png"))
-    os.makedirs(os.path.join(ROOT, "crates", "gamegene-app", "assets"), exist_ok=True)
-    with open(os.path.join(ROOT, "crates", "gamegene-app", "assets", "icon.rgba"), "wb") as f:
+    app_assets = os.path.join(ROOT, "crates", "gamegene-app", "assets")
+    os.makedirs(app_assets, exist_ok=True)
+    with open(os.path.join(app_assets, "icon.rgba"), "wb") as f:
         f.write(light.tobytes())
-    print("wrote light/dark svg + png and icon.rgba")
+    # Multi-resolution .ico for the Windows executable resource, so the taskbar,
+    # Explorer, and pinned shortcuts show the brand icon (the runtime window
+    # icon set via with_icon does not cover those).
+    light.save(
+        os.path.join(app_assets, "icon.ico"),
+        format="ICO",
+        sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
+    )
+    print("wrote light/dark svg + png, icon.rgba and icon.ico")
 
 
 if __name__ == "__main__":

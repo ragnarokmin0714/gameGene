@@ -20,6 +20,9 @@ breaking changes).
   changing length can't reflow the grid each frame.
 - "First scan" is now disabled once a scan is in progress — use "Reset" to start
   over — so an accidental click can't discard the narrowed results.
+- Windows taskbar / Explorer now show the GameGene icon: the icon is embedded
+  into the `.exe` as a resource at build time (`build.rs` + `winresource`),
+  since the runtime window icon alone does not cover those.
 
 ## [0.4.0]
 
