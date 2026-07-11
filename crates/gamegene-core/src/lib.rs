@@ -13,6 +13,7 @@ pub mod mock;
 pub mod pointer;
 pub mod process;
 pub mod scan;
+pub mod structure;
 pub mod table;
 pub mod value;
 
@@ -21,5 +22,6 @@ pub use find::{find_pattern, parse_aob, text_pattern, Pattern, TextEncoding};
 pub use pointer::{pointer_scan, PointerScanOptions};
 pub use process::{MemoryRegion, MemorySource, ModuleInfo};
 pub use scan::{Compare, Match, ScanSession};
+pub use structure::{detect_stride_in, dissect, Dissection, Field, StrideOptions};
 pub use table::{CheatTable, Locator, TableEntry};
 pub use value::{ScanValue, ValueType};

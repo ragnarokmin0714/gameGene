@@ -7,6 +7,7 @@ use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
+use gamegene_core::structure::{dissect, infer_fields, Field, StrideOptions};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
 use gamegene_core::MemorySource;
@@ -157,6 +158,15 @@ pub struct GameGeneApp {
     /// Show every interpreted type in the memory viewer, not just the common few.
     hex_more: bool,
 
+    // Structure / array dissection
+    show_struct: bool,
+    struct_base: u64,
+    struct_base_input: String,
+    struct_stride: usize,
+    struct_stride_input: String,
+    struct_rows: usize,
+    struct_fields: Vec<Field>,
+
     // Chrome
     theme: ThemeChoice,
     applied_theme: Option<(theme::Skin, bool)>,
@@ -215,6 +225,13 @@ impl GameGeneApp {
             hex_write_type: ValueType::I32,
             hex_write_text: String::new(),
             hex_more: false,
+            show_struct: false,
+            struct_base: 0,
+            struct_base_input: String::new(),
+            struct_stride: 0,
+            struct_stride_input: String::new(),
+            struct_rows: 16,
+            struct_fields: Vec::new(),
             theme: saved.theme,
             applied_theme: None,
             cjk_font,
@@ -331,16 +348,16 @@ impl GameGeneApp {
         self.status = format!("Found {} match(es)", self.find_results.len());
     }
 
-    fn add_to_table(&mut self, address: u64) {
+    fn add_to_table(&mut self, address: u64, value_type: ValueType) {
         self.entry_counter += 1;
         let desired = self
             .source
             .as_deref()
-            .and_then(|s| read_value(s, address, self.value_type));
+            .and_then(|s| read_value(s, address, value_type));
         self.table.add(TableEntry {
             id: 0,
             label: format!("Value {}", self.entry_counter),
-            value_type: self.value_type,
+            value_type,
             locator: Locator::Absolute(address),
             desired,
             frozen: false,
@@ -396,6 +413,7 @@ impl eframe::App for GameGeneApp {
         self.table_panel(ctx);
         self.scan_panel(ctx);
         self.hex_window(ctx);
+        self.struct_window(ctx);
         self.settings_window(ctx);
     }
 
@@ -558,6 +576,7 @@ impl GameGeneApp {
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.toggle_value(&mut self.show_settings, tr.settings);
+                    ui.toggle_value(&mut self.show_struct, tr.arr_view);
                     ui.toggle_value(&mut self.show_hex, tr.mem_view);
                     egui::ComboBox::from_id_source("lang")
                         .selected_text(match self.lang {
@@ -846,7 +865,7 @@ impl GameGeneApp {
                 self.do_find();
             }
             if let Some(addr) = find_add {
-                self.add_to_table(addr);
+                self.add_to_table(addr, self.value_type);
             }
 
             ui.separator();
@@ -912,7 +931,7 @@ impl GameGeneApp {
                 });
 
             if let Some(addr) = add_addr {
-                self.add_to_table(addr);
+                self.add_to_table(addr, self.value_type);
             }
             if let Some(a) = goto_addr {
                 self.show_hex = true;
@@ -1090,6 +1109,7 @@ impl GameGeneApp {
         let mut new_sel = None;
         let mut do_write = None;
         let mut add_addr = None;
+        let mut dissect_from = None;
 
         egui::Window::new(tr.mem_title)
             .open(&mut open)
@@ -1148,30 +1168,39 @@ impl GameGeneApp {
                                 .num_columns(2)
                                 .striped(true)
                                 .show(ui, |ui| {
+                                    let h = ui.spacing().interact_size.y;
+                                    // Fixed-width value cell: a live value that
+                                    // changes length must not reflow the grid and
+                                    // shake the whole window left-right.
+                                    let value_row = |ui: &mut egui::Ui, label: &str, val: &str| {
+                                        ui.monospace(label);
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(220.0, h),
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(val).monospace(),
+                                                    )
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(val);
+                                            },
+                                        );
+                                        ui.end_row();
+                                    };
+
                                     let raw: String = region
                                         .iter()
                                         .take(8)
                                         .map(|b| format!("{b:02X} "))
                                         .collect();
-                                    let raw = raw.trim_end();
-                                    ui.monospace(tr.mem_raw);
-                                    ui.add(
-                                        egui::Label::new(RichText::new(raw).monospace()).truncate(),
-                                    )
-                                    .on_hover_text(raw);
-                                    ui.end_row();
+                                    value_row(ui, tr.mem_raw, raw.trim_end());
 
                                     for (ty, v) in interpret(region) {
                                         let common = matches!(ty, ValueType::I32 | ValueType::F32);
                                         if more || common {
-                                            ui.monospace(ty.label());
-                                            let full = v.display();
-                                            ui.add(
-                                                egui::Label::new(RichText::new(&full).monospace())
-                                                    .truncate(),
-                                            )
-                                            .on_hover_text(&full);
-                                            ui.end_row();
+                                            value_row(ui, ty.label(), &v.display());
                                         }
                                     }
                                 });
@@ -1198,6 +1227,9 @@ impl GameGeneApp {
                             }
                             if ui.small_button(tr.add_table).clicked() {
                                 add_addr = Some(sel);
+                            }
+                            if ui.small_button(tr.arr_dissect).clicked() {
+                                dissect_from = Some(sel);
                             }
                         });
                     } else {
@@ -1261,7 +1293,13 @@ impl GameGeneApp {
             self.hex_write_at(addr);
         }
         if let Some(addr) = add_addr {
-            self.add_to_table(addr);
+            self.add_to_table(addr, self.value_type);
+        }
+        if let Some(addr) = dissect_from {
+            self.show_struct = true;
+            self.struct_base = addr;
+            self.struct_base_input = format!("{addr:X}");
+            self.struct_detect();
         }
         self.show_hex = open;
     }
@@ -1281,6 +1319,177 @@ impl GameGeneApp {
             },
             None => self.status = "Attach to a process first.".into(),
         }
+    }
+
+    /// Parse the array base-address input (hex) into `struct_base`.
+    fn struct_parse_base(&mut self) -> bool {
+        let s = self.struct_base_input.trim().trim_start_matches("0x");
+        match u64::from_str_radix(s, 16) {
+            Ok(a) => {
+                self.struct_base = a;
+                true
+            }
+            Err(_) => {
+                self.status = "Enter a hex address for the array base.".into();
+                false
+            }
+        }
+    }
+
+    /// Auto-detect the record size at the base address and infer its fields.
+    fn struct_detect(&mut self) {
+        if !self.struct_parse_base() {
+            return;
+        }
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        match dissect(src, self.struct_base, StrideOptions::default()) {
+            Some(d) => {
+                self.struct_stride = d.stride;
+                self.struct_stride_input = d.stride.to_string();
+                self.struct_fields = d.fields;
+                self.status = format!(
+                    "Detected a {}-byte record with {} fields",
+                    self.struct_stride,
+                    self.struct_fields.len()
+                );
+            }
+            None => {
+                self.status = "Couldn't detect a stride — enter one and press Apply.".into();
+            }
+        }
+    }
+
+    /// Re-infer fields for a manually-entered stride.
+    fn struct_apply_stride(&mut self) {
+        if !self.struct_parse_base() {
+            return;
+        }
+        let Ok(stride) = self.struct_stride_input.trim().parse::<usize>() else {
+            self.status = "Stride must be a whole number of bytes.".into();
+            return;
+        };
+        if stride < 4 {
+            self.status = "Stride must be at least 4 bytes.".into();
+            return;
+        }
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        let opts = StrideOptions::default();
+        let mut buf = vec![0u8; opts.window];
+        let got = src.read(self.struct_base, &mut buf).unwrap_or(0);
+        buf.truncate(got);
+        let records = (buf.len() / stride).max(1);
+        self.struct_stride = stride;
+        self.struct_fields = infer_fields(&buf, stride, records);
+        self.status = format!(
+            "Using a {stride}-byte record with {} fields",
+            self.struct_fields.len()
+        );
+    }
+
+    fn struct_window(&mut self, ctx: &egui::Context) {
+        if !self.show_struct {
+            return;
+        }
+        let tr = self.tr();
+        let mut open = self.show_struct;
+        let mut detect = false;
+        let mut apply = false;
+        let mut add: Option<(u64, ValueType)> = None;
+
+        egui::Window::new(tr.arr_title)
+            .open(&mut open)
+            .resizable(true)
+            .default_width(660.0)
+            .default_height(460.0)
+            .show(ctx, |ui| {
+                egui::TopBottomPanel::top("arr_top").show_inside(ui, |ui| {
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.label("0x");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.struct_base_input)
+                                .desired_width(120.0)
+                                .hint_text(tr.mem_addr_hint),
+                        );
+                        if ui.button(tr.arr_detect).clicked() {
+                            detect = true;
+                        }
+                        ui.separator();
+                        ui.label(tr.arr_stride);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.struct_stride_input)
+                                .desired_width(56.0),
+                        );
+                        if ui.button(tr.arr_apply).clicked() {
+                            apply = true;
+                        }
+                        ui.label(tr.arr_rows);
+                        ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=256));
+                    });
+                    ui.label(RichText::new(tr.arr_hint).weak());
+                    ui.add_space(2.0);
+                });
+
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    if self.struct_fields.is_empty() || self.struct_stride < 4 {
+                        ui.label(RichText::new(tr.arr_none).weak());
+                        return;
+                    }
+                    let src = self.source.as_deref();
+                    let stride = self.struct_stride as u64;
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            egui::Grid::new("arr_grid").striped(true).show(ui, |ui| {
+                                ui.strong(tr.arr_addr);
+                                for f in &self.struct_fields {
+                                    ui.strong(format!("+{:X} {}", f.offset, f.ty.label()));
+                                }
+                                ui.end_row();
+
+                                let h = ui.spacing().interact_size.y;
+                                for r in 0..self.struct_rows {
+                                    let row_addr = self.struct_base + r as u64 * stride;
+                                    ui.monospace(format!("{row_addr:012X}"));
+                                    for f in &self.struct_fields {
+                                        let addr = row_addr + f.offset as u64;
+                                        let val = src
+                                            .and_then(|s| read_value(s, addr, f.ty))
+                                            .map(|v| v.display())
+                                            .unwrap_or_else(|| "—".into());
+                                        let resp =
+                                            ui.add_sized([92.0, h], egui::Button::new(val).small());
+                                        if resp.clicked() {
+                                            add = Some((addr, f.ty));
+                                        }
+                                        resp.on_hover_text(format!(
+                                            "{addr:#014X} — {}",
+                                            tr.arr_cell_hint
+                                        ));
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                });
+            });
+
+        if detect {
+            self.struct_detect();
+        }
+        if apply {
+            self.struct_apply_stride();
+        }
+        if let Some((addr, ty)) = add {
+            self.add_to_table(addr, ty);
+        }
+        self.show_struct = open;
     }
 
     fn save_table(&mut self) {

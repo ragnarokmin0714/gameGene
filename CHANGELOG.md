@@ -7,6 +7,21 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.7.0]
+
+### Added
+- **Array / structure dissection** (new "Array" window, also reachable from the
+  memory viewer's "Dissect array"). Point it at one record's address and it
+  detects the record size (stride) by looking for the memory's period, lays the
+  array out as one row per record, and infers each field as Int32 or Float. The
+  stride is editable, and clicking any cell adds it to the cheat table. This is
+  the groundwork for bulk item / move editing (the fill/repeat writer is next).
+
+### Fixed
+- Memory viewer no longer shakes left-right when a shown value fluctuates: the
+  interpreted-value column is a fixed width, so a value changing length can't
+  resize the window each frame.
+
 ## [0.6.0]
 
 ### Added

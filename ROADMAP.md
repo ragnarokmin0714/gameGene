@@ -5,14 +5,11 @@ Shipped changes are recorded in [CHANGELOG.md](CHANGELOG.md), not here.
 
 ## Next: finish the memory-editing story (item / move lists)
 
-The memory viewer (hex view) landed as step 1. The two pieces that make
-bulk item/move editing practical:
+The memory viewer (hex view) landed first, and **structure dissection /
+array-stride detection shipped in 0.7.0** (the "Array" window: detect the
+record size, lay the array out as rows, infer Int32/Float fields, add cells to
+the table). What remains to make bulk item/move editing practical:
 
-- **Structure dissection / array-stride detection.** Given one found entry
-  (e.g. an inventory slot), detect the repeating record size (stride) and lay
-  the array out as rows, inferring per-field types (int / float / pointer /
-  string) heuristically. This is what turns "one address" into "the whole
-  inventory / move table".
 - **Fill / repeat writer.** Write a pattern across a detected array in one go:
   a fixed value, an incrementing id (`start, step, count`), or copy-one-slot to
   all. This is GameGene's stand-in for Cheat Engine's Lua scripting for mass
