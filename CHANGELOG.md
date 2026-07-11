@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 follows [Semantic Versioning](https://semver.org/) (0.x: minor bumps may include
 breaking changes).
 
+## [Unreleased]
+
+### Added
+- **Memory viewer** (toggle "Memory"): a hex/ASCII grid over a windowed read of
+  the target, live-refreshed. Click a byte to see it decoded as every value
+  type, write a value at that address, or add it to the cheat table. Reads only
+  the visible 256 bytes, so it is cheap. Planned follow-ups (structure
+  dissection, fill tool) are in [ROADMAP.md](ROADMAP.md).
+
 ## [0.3.0]
 
 ### Added

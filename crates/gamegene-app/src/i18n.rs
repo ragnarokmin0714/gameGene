@@ -72,6 +72,12 @@ pub struct Tr {
     pub find_utf16: &'static str,
     pub find_aob: &'static str,
 
+    pub mem_view: &'static str,
+    pub mem_title: &'static str,
+    pub mem_goto: &'static str,
+    pub mem_write: &'static str,
+    pub mem_addr_hint: &'static str,
+
     pub m_exact: &'static str,
     pub m_greater: &'static str,
     pub m_less: &'static str,
@@ -131,6 +137,12 @@ static EN: Tr = Tr {
     find_utf16: "Text (UTF-16)",
     find_aob: "Bytes (hex)",
 
+    mem_view: "Memory",
+    mem_title: "Memory viewer",
+    mem_goto: "Go",
+    mem_write: "Write",
+    mem_addr_hint: "address (hex)",
+
     m_exact: "Exact value",
     m_greater: "Greater than",
     m_less: "Less than",
@@ -189,6 +201,12 @@ static ZH: Tr = Tr {
     find_text: "文字",
     find_utf16: "文字 (UTF-16)",
     find_aob: "位元組 (hex)",
+
+    mem_view: "記憶體",
+    mem_title: "記憶體檢視器",
+    mem_goto: "前往",
+    mem_write: "寫入",
+    mem_addr_hint: "位址 (hex)",
 
     m_exact: "精確值",
     m_greater: "大於",

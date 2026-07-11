@@ -8,6 +8,7 @@
 pub mod constants;
 pub mod error;
 pub mod find;
+pub mod hexview;
 pub mod mock;
 pub mod pointer;
 pub mod process;

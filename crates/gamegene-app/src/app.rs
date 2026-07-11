@@ -4,6 +4,7 @@
 use eframe::egui::{self, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
+use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
@@ -116,6 +117,14 @@ pub struct GameGeneApp {
     find_mode: FindMode,
     find_results: Vec<u64>,
 
+    // Memory viewer
+    show_hex: bool,
+    hex_addr: u64,
+    hex_addr_input: String,
+    hex_sel: Option<u64>,
+    hex_write_type: ValueType,
+    hex_write_text: String,
+
     // Chrome
     theme: ThemeChoice,
     applied_dark: Option<bool>,
@@ -146,6 +155,12 @@ impl GameGeneApp {
             find_query: String::new(),
             find_mode: FindMode::Text,
             find_results: Vec::new(),
+            show_hex: false,
+            hex_addr: 0,
+            hex_addr_input: String::new(),
+            hex_sel: None,
+            hex_write_type: ValueType::I32,
+            hex_write_text: String::new(),
             theme: ThemeChoice::System,
             applied_dark: None,
             lang: Lang::En,
@@ -316,6 +331,7 @@ impl eframe::App for GameGeneApp {
         self.process_panel(ctx);
         self.table_panel(ctx);
         self.scan_panel(ctx);
+        self.hex_window(ctx);
     }
 }
 
@@ -337,6 +353,7 @@ impl GameGeneApp {
                     .weak(),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.toggle_value(&mut self.show_hex, tr.mem_view);
                     egui::ComboBox::from_id_source("lang")
                         .selected_text(match self.lang {
                             Lang::En => "English",
@@ -774,6 +791,148 @@ impl GameGeneApp {
             None => {
                 self.status = "No pointer path found (try again or keep the raw address)".into()
             }
+        }
+    }
+
+    fn hex_window(&mut self, ctx: &egui::Context) {
+        if !self.show_hex {
+            return;
+        }
+        let tr = self.tr();
+        let mut open = true;
+        let mut new_sel = None;
+        let mut do_write = None;
+        let mut add_addr = None;
+
+        egui::Window::new(tr.mem_title)
+            .open(&mut open)
+            .resizable(true)
+            .default_width(560.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("0x");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.hex_addr_input)
+                            .desired_width(130.0)
+                            .hint_text(tr.mem_addr_hint),
+                    );
+                    if ui.button(tr.mem_goto).clicked() {
+                        let s = self.hex_addr_input.trim().trim_start_matches("0x");
+                        if let Ok(a) = u64::from_str_radix(s, 16) {
+                            self.hex_addr = a & !0xF; // align to a 16-byte row
+                        }
+                    }
+                    if ui.small_button("- 256").clicked() {
+                        self.hex_addr = self.hex_addr.saturating_sub(256);
+                    }
+                    if ui.small_button("+ 256").clicked() {
+                        self.hex_addr = self.hex_addr.saturating_add(256);
+                    }
+                });
+                ui.separator();
+
+                // Windowed read: only the visible 256 bytes, so this is cheap.
+                let mut buf = [0u8; 256];
+                let got = self
+                    .source
+                    .as_deref()
+                    .map(|s| s.read(self.hex_addr, &mut buf).unwrap_or(0))
+                    .unwrap_or(0);
+
+                egui::Grid::new("hexgrid")
+                    .spacing([3.0, 2.0])
+                    .show(ui, |ui| {
+                        for row in 0..16usize {
+                            let row_addr = self.hex_addr + (row * 16) as u64;
+                            ui.monospace(format!("{row_addr:012X}"));
+                            for col in 0..16usize {
+                                let i = row * 16 + col;
+                                let addr = self.hex_addr + i as u64;
+                                if i < got {
+                                    let selected = self.hex_sel == Some(addr);
+                                    if ui
+                                        .selectable_label(selected, format!("{:02X}", buf[i]))
+                                        .clicked()
+                                    {
+                                        new_sel = Some(addr);
+                                    }
+                                } else {
+                                    ui.monospace("··");
+                                }
+                            }
+                            let ascii: String = (0..16)
+                                .map(|col| {
+                                    let i = row * 16 + col;
+                                    if i < got {
+                                        ascii_char(buf[i])
+                                    } else {
+                                        ' '
+                                    }
+                                })
+                                .collect();
+                            ui.monospace(ascii);
+                            ui.end_row();
+                        }
+                    });
+
+                ui.separator();
+                if let Some(sel) = self.hex_sel {
+                    ui.monospace(format!("@ {sel:#014X}"));
+                    let off = sel.wrapping_sub(self.hex_addr) as usize;
+                    if off < got {
+                        for (ty, v) in interpret(&buf[off..got]) {
+                            ui.monospace(format!("{:>7}: {}", ty.label(), v.display()));
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_source("hexwt")
+                            .selected_text(self.hex_write_type.label())
+                            .show_ui(ui, |ui| {
+                                for t in ValueType::ALL {
+                                    ui.selectable_value(&mut self.hex_write_type, t, t.label());
+                                }
+                            });
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.hex_write_text)
+                                .desired_width(110.0)
+                                .hint_text(tr.set_hint),
+                        );
+                        if ui.button(tr.mem_write).clicked() {
+                            do_write = Some(sel);
+                        }
+                        if ui.small_button(tr.add_table).clicked() {
+                            add_addr = Some(sel);
+                        }
+                    });
+                }
+            });
+
+        if let Some(a) = new_sel {
+            self.hex_sel = Some(a);
+        }
+        if let Some(addr) = do_write {
+            self.hex_write_at(addr);
+        }
+        if let Some(addr) = add_addr {
+            self.add_to_table(addr);
+        }
+        self.show_hex = open;
+    }
+
+    fn hex_write_at(&mut self, addr: u64) {
+        let value = match ScanValue::parse(self.hex_write_type, &self.hex_write_text) {
+            Ok(v) => v,
+            Err(e) => {
+                self.status = e.to_string();
+                return;
+            }
+        };
+        match self.source.as_deref() {
+            Some(src) => match src.write(addr, &value.to_le_bytes()) {
+                Ok(()) => self.status = format!("Wrote {} to {addr:#x}", value.display()),
+                Err(e) => self.status = format!("Write failed: {e}"),
+            },
+            None => self.status = "Attach to a process first.".into(),
         }
     }
 
