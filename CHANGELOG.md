@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.5.0]
+
 ### Added
 - **Claude theme.** Two extra options in the theme picker — "Claude" and
   "Claude Dark" — with a warm cream / terracotta palette alongside the existing
