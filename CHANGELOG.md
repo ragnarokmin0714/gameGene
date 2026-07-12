@@ -7,6 +7,29 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.14.0]
+
+### Added
+- **Scans run on a background thread** with a progress bar and a Cancel button.
+  A first/next scan over a multi-GB game no longer freezes the window, and
+  frozen table entries keep being re-written while a scan runs.
+- First scan stops at a candidate cap (10M) instead of exhausting memory on a
+  too-common value (e.g. scanning for `0`), reporting that the value is too
+  common to narrow.
+
+### Changed
+- **Faster scanning.** The inner loop is specialized per value type and
+  compares raw native values, building a `ScanValue` only for actual matches;
+  regions are scanned in parallel across all cores (aligned work splitting, so
+  results are identical to the old serial scan). The byte/text finder anchors
+  on the first concrete byte and uses SIMD (`memchr`) to skip between
+  candidates.
+
+### Fixed
+- 64-bit integer comparisons (`>`, `<`, ranges) are now exact past 2^53.
+  Ordering previously went through `f64`, which could not distinguish very
+  large `i64`/`u64` values.
+
 ## [0.13.0]
 
 ### Added
