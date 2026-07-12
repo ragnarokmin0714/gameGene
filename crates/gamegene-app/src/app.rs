@@ -1313,175 +1313,172 @@ impl GameGeneApp {
                     .map(|s| s.read(self.hex_addr, &mut buf).unwrap_or(0))
                     .unwrap_or(0);
 
-                // Fixed address bar at the top.
-                egui::TopBottomPanel::top("hex_top").show_inside(ui, |ui| {
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.label("0x");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.hex_addr_input)
-                                .desired_width(130.0)
-                                .hint_text(tr.mem_addr_hint),
-                        );
-                        if ui.button(tr.mem_goto).clicked() {
-                            let s = self.hex_addr_input.trim().trim_start_matches("0x");
-                            if let Ok(a) = u64::from_str_radix(s, 16) {
-                                self.hex_addr = a & !0xF; // align to a 16-byte row
-                            }
+                // Fixed address bar; the body below scrolls independently.
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.label("0x");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.hex_addr_input)
+                            .desired_width(130.0)
+                            .hint_text(tr.mem_addr_hint),
+                    );
+                    if ui.button(tr.mem_goto).clicked() {
+                        let s = self.hex_addr_input.trim().trim_start_matches("0x");
+                        if let Ok(a) = u64::from_str_radix(s, 16) {
+                            self.hex_addr = a & !0xF; // align to a 16-byte row
                         }
-                        if ui.small_button("- 256").clicked() {
-                            self.hex_addr = self.hex_addr.saturating_sub(256);
-                        }
-                        if ui.small_button("+ 256").clicked() {
-                            self.hex_addr = self.hex_addr.saturating_add(256);
-                        }
-                    });
-                    ui.add_space(2.0);
+                    }
+                    if ui.small_button("- 256").clicked() {
+                        self.hex_addr = self.hex_addr.saturating_sub(256);
+                    }
+                    if ui.small_button("+ 256").clicked() {
+                        self.hex_addr = self.hex_addr.saturating_add(256);
+                    }
                 });
+                ui.separator();
 
-                // Everything below the address bar lives in one scroll area, so
-                // the window can shrink freely without clipping the inspector or
-                // the grid. The inspector stays right under the address bar for
+                // Everything below the address bar shares one scroll area (no
+                // nested panels), so the window stays a fixed viewport: the body
+                // scrolls instead of spilling past the frame or jittering when a
+                // live value changes width. The inspector sits at the top for
                 // easy reach.
-                egui::CentralPanel::default().show_inside(ui, |ui| {
-                    egui::ScrollArea::both()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.add_space(4.0);
-                            if let Some(sel) = self.hex_sel {
-                                ui.monospace(format!("@ {sel:#014X}"));
-                                let off = sel.wrapping_sub(self.hex_addr) as usize;
-                                if off < got {
-                                    // Show the raw bytes plus the common types (Int32,
-                                    // Float); "more" expands to every type. Long values
-                                    // (f64) truncate with the full value on hover, so
-                                    // they never blow out the panel width.
-                                    let more = self.hex_more;
-                                    let region = &buf[off..got];
-                                    egui::Grid::new("hex_interp")
-                                        .num_columns(2)
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            let h = ui.spacing().interact_size.y;
-                                            // Fixed-width value cell: a live value that
-                                            // changes length must not reflow the grid and
-                                            // shake the whole window left-right.
-                                            let value_row =
-                                                |ui: &mut egui::Ui, label: &str, val: &str| {
-                                                    ui.monospace(label);
-                                                    ui.allocate_ui_with_layout(
-                                                        egui::vec2(220.0, h),
-                                                        egui::Layout::left_to_right(
-                                                            egui::Align::Center,
-                                                        ),
-                                                        |ui| {
-                                                            ui.add(
-                                                                egui::Label::new(
-                                                                    RichText::new(val).monospace(),
-                                                                )
-                                                                .truncate(),
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add_space(4.0);
+                        if let Some(sel) = self.hex_sel {
+                            ui.monospace(format!("@ {sel:#014X}"));
+                            let off = sel.wrapping_sub(self.hex_addr) as usize;
+                            if off < got {
+                                // Show the raw bytes plus the common types (Int32,
+                                // Float); "more" expands to every type. Long values
+                                // (f64) truncate with the full value on hover, so
+                                // they never blow out the panel width.
+                                let more = self.hex_more;
+                                let region = &buf[off..got];
+                                egui::Grid::new("hex_interp")
+                                    .num_columns(2)
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        let h = ui.spacing().interact_size.y;
+                                        // Fixed-width value cell: a live value that
+                                        // changes length must not reflow the grid and
+                                        // shake the whole window left-right.
+                                        let value_row =
+                                            |ui: &mut egui::Ui, label: &str, val: &str| {
+                                                ui.monospace(label);
+                                                ui.allocate_ui_with_layout(
+                                                    egui::vec2(220.0, h),
+                                                    egui::Layout::left_to_right(
+                                                        egui::Align::Center,
+                                                    ),
+                                                    |ui| {
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(val).monospace(),
                                                             )
-                                                            .on_hover_text(val);
-                                                        },
-                                                    );
-                                                    ui.end_row();
-                                                };
-
-                                            let raw: String = region
-                                                .iter()
-                                                .take(8)
-                                                .map(|b| format!("{b:02X} "))
-                                                .collect();
-                                            value_row(ui, tr.mem_raw, raw.trim_end());
-
-                                            for (ty, v) in interpret(region) {
-                                                let common =
-                                                    matches!(ty, ValueType::I32 | ValueType::F32);
-                                                if more || common {
-                                                    value_row(ui, ty.label(), &v.display());
-                                                }
-                                            }
-                                        });
-                                    let label = if more { tr.mem_less } else { tr.mem_more };
-                                    if ui.small_button(label).clicked() {
-                                        self.hex_more = !more;
-                                    }
-                                }
-                                ui.horizontal(|ui| {
-                                    egui::ComboBox::from_id_source("hexwt")
-                                        .selected_text(self.hex_write_type.label())
-                                        .show_ui(ui, |ui| {
-                                            for t in ValueType::ALL {
-                                                ui.selectable_value(
-                                                    &mut self.hex_write_type,
-                                                    t,
-                                                    t.label(),
+                                                            .truncate(),
+                                                        )
+                                                        .on_hover_text(val);
+                                                    },
                                                 );
-                                            }
-                                        });
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut self.hex_write_text)
-                                            .desired_width(110.0)
-                                            .hint_text(tr.set_hint),
-                                    );
-                                    if ui.button(tr.mem_write).clicked() {
-                                        do_write = Some(sel);
-                                    }
-                                    if ui.small_button(tr.add_table).clicked() {
-                                        add_addr = Some(sel);
-                                    }
-                                    if ui.small_button(tr.arr_dissect).clicked() {
-                                        dissect_from = Some(sel);
-                                    }
-                                });
-                            } else {
-                                ui.label(RichText::new(tr.mem_pick_hint).weak());
-                            }
-                            ui.add_space(4.0);
-                            ui.separator();
-                            ui.add_space(2.0);
+                                                ui.end_row();
+                                            };
 
-                            // Hex/ASCII grid, in the same scroll area as the inspector.
-                            egui::Grid::new("hexgrid")
-                                .spacing([3.0, 2.0])
-                                .show(ui, |ui| {
-                                    for row in 0..16usize {
-                                        let row_addr = self.hex_addr + (row * 16) as u64;
-                                        ui.monospace(format!("{row_addr:012X}"));
-                                        for col in 0..16usize {
-                                            let i = row * 16 + col;
-                                            let addr = self.hex_addr + i as u64;
-                                            if i < got {
-                                                let selected = self.hex_sel == Some(addr);
-                                                if ui
-                                                    .selectable_label(
-                                                        selected,
-                                                        format!("{:02X}", buf[i]),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    new_sel = Some(addr);
-                                                }
-                                            } else {
-                                                ui.monospace("··");
+                                        let raw: String = region
+                                            .iter()
+                                            .take(8)
+                                            .map(|b| format!("{b:02X} "))
+                                            .collect();
+                                        value_row(ui, tr.mem_raw, raw.trim_end());
+
+                                        for (ty, v) in interpret(region) {
+                                            let common =
+                                                matches!(ty, ValueType::I32 | ValueType::F32);
+                                            if more || common {
+                                                value_row(ui, ty.label(), &v.display());
                                             }
                                         }
-                                        let ascii: String = (0..16)
-                                            .map(|col| {
-                                                let i = row * 16 + col;
-                                                if i < got {
-                                                    ascii_char(buf[i])
-                                                } else {
-                                                    ' '
-                                                }
-                                            })
-                                            .collect();
-                                        ui.monospace(ascii);
-                                        ui.end_row();
+                                    });
+                                let label = if more { tr.mem_less } else { tr.mem_more };
+                                if ui.small_button(label).clicked() {
+                                    self.hex_more = !more;
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_source("hexwt")
+                                    .selected_text(self.hex_write_type.label())
+                                    .show_ui(ui, |ui| {
+                                        for t in ValueType::ALL {
+                                            ui.selectable_value(
+                                                &mut self.hex_write_type,
+                                                t,
+                                                t.label(),
+                                            );
+                                        }
+                                    });
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.hex_write_text)
+                                        .desired_width(110.0)
+                                        .hint_text(tr.set_hint),
+                                );
+                                if ui.button(tr.mem_write).clicked() {
+                                    do_write = Some(sel);
+                                }
+                                if ui.small_button(tr.add_table).clicked() {
+                                    add_addr = Some(sel);
+                                }
+                                if ui.small_button(tr.arr_dissect).clicked() {
+                                    dissect_from = Some(sel);
+                                }
+                            });
+                        } else {
+                            ui.label(RichText::new(tr.mem_pick_hint).weak());
+                        }
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(2.0);
+
+                        // Hex/ASCII grid, in the same scroll area as the inspector.
+                        egui::Grid::new("hexgrid")
+                            .spacing([3.0, 2.0])
+                            .show(ui, |ui| {
+                                for row in 0..16usize {
+                                    let row_addr = self.hex_addr + (row * 16) as u64;
+                                    ui.monospace(format!("{row_addr:012X}"));
+                                    for col in 0..16usize {
+                                        let i = row * 16 + col;
+                                        let addr = self.hex_addr + i as u64;
+                                        if i < got {
+                                            let selected = self.hex_sel == Some(addr);
+                                            if ui
+                                                .selectable_label(
+                                                    selected,
+                                                    format!("{:02X}", buf[i]),
+                                                )
+                                                .clicked()
+                                            {
+                                                new_sel = Some(addr);
+                                            }
+                                        } else {
+                                            ui.monospace("··");
+                                        }
                                     }
-                                });
-                        });
-                });
+                                    let ascii: String = (0..16)
+                                        .map(|col| {
+                                            let i = row * 16 + col;
+                                            if i < got {
+                                                ascii_char(buf[i])
+                                            } else {
+                                                ' '
+                                            }
+                                        })
+                                        .collect();
+                                    ui.monospace(ascii);
+                                    ui.end_row();
+                                }
+                            });
+                    });
             });
 
         if let Some(a) = new_sel {
@@ -1714,177 +1711,173 @@ impl GameGeneApp {
             .default_width(660.0)
             .default_height(460.0)
             .show(ctx, |ui| {
-                egui::TopBottomPanel::top("arr_top").show_inside(ui, |ui| {
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.label("0x");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.struct_base_input)
-                                .desired_width(120.0)
-                                .hint_text(tr.mem_addr_hint),
-                        );
-                        if ui.button(tr.arr_detect).clicked() {
-                            detect = true;
-                        }
-                        ui.separator();
-                        ui.label(tr.arr_stride);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.struct_stride_input)
-                                .desired_width(56.0),
-                        );
-                        if ui.button(tr.arr_apply).clicked() {
-                            apply = true;
-                        }
-                        ui.label(tr.arr_rows);
-                        ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=256));
-                    });
-                    ui.label(RichText::new(tr.arr_hint).weak());
-                    ui.add_space(2.0);
-                });
-
-                egui::CentralPanel::default().show_inside(ui, |ui| {
-                    if self.struct_fields.is_empty() || self.struct_stride < 4 {
-                        ui.label(RichText::new(tr.arr_none).weak());
-                        return;
+                // Fixed control bar; the body below scrolls independently.
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    ui.label("0x");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.struct_base_input)
+                            .desired_width(120.0)
+                            .hint_text(tr.mem_addr_hint),
+                    );
+                    if ui.button(tr.arr_detect).clicked() {
+                        detect = true;
                     }
-                    let src = self.source.as_deref();
-                    let stride = self.struct_stride as u64;
-                    // Fill controls and the array grid share one scroll area, so
-                    // the window resizes cleanly and nothing spills outside it.
-                    egui::ScrollArea::both()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            // Fill / bulk write, collapsed by default.
-                            egui::CollapsingHeader::new(tr.fill_title).show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(tr.fill_field);
-                                    let cur = self.fill_field.min(self.struct_fields.len() - 1);
-                                    let cur_f = self.struct_fields[cur];
-                                    egui::ComboBox::from_id_source("fill_field")
-                                        .selected_text(format!(
-                                            "+{:X} {}",
-                                            cur_f.offset,
-                                            cur_f.ty.label()
-                                        ))
-                                        .show_ui(ui, |ui| {
-                                            for i in 0..self.struct_fields.len() {
-                                                let f = self.struct_fields[i];
-                                                let lbl =
-                                                    format!("+{:X} {}", f.offset, f.ty.label());
-                                                ui.selectable_value(&mut self.fill_field, i, lbl);
-                                            }
-                                        });
-                                    ui.checkbox(&mut self.fill_increment, tr.fill_increment);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(if self.fill_increment {
-                                        tr.fill_start
-                                    } else {
-                                        tr.fill_value
+                    ui.separator();
+                    ui.label(tr.arr_stride);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.struct_stride_input)
+                            .desired_width(56.0),
+                    );
+                    if ui.button(tr.arr_apply).clicked() {
+                        apply = true;
+                    }
+                    ui.label(tr.arr_rows);
+                    ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=256));
+                });
+                ui.label(RichText::new(tr.arr_hint).weak());
+                ui.separator();
+
+                // No nested panels: the window stays a fixed viewport and the
+                // body scrolls, so nothing spills past the frame.
+                if self.struct_fields.is_empty() || self.struct_stride < 4 {
+                    ui.label(RichText::new(tr.arr_none).weak());
+                    return;
+                }
+                let src = self.source.as_deref();
+                let stride = self.struct_stride as u64;
+                // Fill controls and the array grid share one scroll area, so
+                // the window resizes cleanly and nothing spills outside it.
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // Fill / bulk write, collapsed by default.
+                        egui::CollapsingHeader::new(tr.fill_title).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(tr.fill_field);
+                                let cur = self.fill_field.min(self.struct_fields.len() - 1);
+                                let cur_f = self.struct_fields[cur];
+                                egui::ComboBox::from_id_source("fill_field")
+                                    .selected_text(format!(
+                                        "+{:X} {}",
+                                        cur_f.offset,
+                                        cur_f.ty.label()
+                                    ))
+                                    .show_ui(ui, |ui| {
+                                        for i in 0..self.struct_fields.len() {
+                                            let f = self.struct_fields[i];
+                                            let lbl = format!("+{:X} {}", f.offset, f.ty.label());
+                                            ui.selectable_value(&mut self.fill_field, i, lbl);
+                                        }
                                     });
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut self.fill_value)
-                                            .desired_width(90.0),
-                                    );
-                                    if self.fill_increment {
-                                        ui.label(tr.fill_step);
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut self.fill_step)
-                                                .desired_width(50.0),
-                                        );
-                                    }
-                                    ui.label(tr.fill_count);
-                                    ui.add(
-                                        egui::DragValue::new(&mut self.fill_count)
-                                            .range(0..=gamegene_core::fill::MAX_FILL),
-                                    );
+                                ui.checkbox(&mut self.fill_increment, tr.fill_increment);
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(if self.fill_increment {
+                                    tr.fill_start
+                                } else {
+                                    tr.fill_value
                                 });
-                                ui.label(RichText::new(tr.fill_count_hint).weak());
-                                ui.horizontal(|ui| {
-                                    if ui.button(tr.fill_preview_btn).clicked() {
-                                        want_preview = true;
-                                    }
-                                    if ui
-                                        .add_enabled(
-                                            !self.fill_plan.is_empty(),
-                                            egui::Button::new(tr.fill_apply_btn),
-                                        )
-                                        .clicked()
-                                    {
-                                        want_apply_fill = true;
-                                    }
-                                    if ui
-                                        .add_enabled(
-                                            !self.fill_backup.is_empty(),
-                                            egui::Button::new(tr.fill_undo_btn),
-                                        )
-                                        .clicked()
-                                    {
-                                        want_undo_fill = true;
-                                    }
-                                });
-                                if !self.fill_plan.is_empty() {
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} {}",
-                                            self.fill_plan.len(),
-                                            tr.fill_writes
-                                        ))
-                                        .weak(),
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.fill_value)
+                                        .desired_width(90.0),
+                                );
+                                if self.fill_increment {
+                                    ui.label(tr.fill_step);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.fill_step)
+                                            .desired_width(50.0),
                                     );
-                                    egui::ScrollArea::vertical()
-                                        .id_source("fill_preview")
-                                        .max_height(90.0)
-                                        .show(ui, |ui| {
-                                            for (addr, bytes) in self.fill_plan.iter().take(64) {
-                                                let hex: String = bytes
-                                                    .iter()
-                                                    .map(|b| format!("{b:02X} "))
-                                                    .collect();
-                                                ui.monospace(format!(
-                                                    "{addr:012X}  {}",
-                                                    hex.trim_end()
-                                                ));
-                                            }
-                                        });
+                                }
+                                ui.label(tr.fill_count);
+                                ui.add(
+                                    egui::DragValue::new(&mut self.fill_count)
+                                        .range(0..=gamegene_core::fill::MAX_FILL),
+                                );
+                            });
+                            ui.label(RichText::new(tr.fill_count_hint).weak());
+                            ui.horizontal(|ui| {
+                                if ui.button(tr.fill_preview_btn).clicked() {
+                                    want_preview = true;
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !self.fill_plan.is_empty(),
+                                        egui::Button::new(tr.fill_apply_btn),
+                                    )
+                                    .clicked()
+                                {
+                                    want_apply_fill = true;
+                                }
+                                if ui
+                                    .add_enabled(
+                                        !self.fill_backup.is_empty(),
+                                        egui::Button::new(tr.fill_undo_btn),
+                                    )
+                                    .clicked()
+                                {
+                                    want_undo_fill = true;
                                 }
                             });
-                            egui::Grid::new("arr_grid").striped(true).show(ui, |ui| {
-                                ui.strong(tr.arr_addr);
+                            if !self.fill_plan.is_empty() {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        self.fill_plan.len(),
+                                        tr.fill_writes
+                                    ))
+                                    .weak(),
+                                );
+                                egui::ScrollArea::vertical()
+                                    .id_source("fill_preview")
+                                    .max_height(90.0)
+                                    .show(ui, |ui| {
+                                        for (addr, bytes) in self.fill_plan.iter().take(64) {
+                                            let hex: String =
+                                                bytes.iter().map(|b| format!("{b:02X} ")).collect();
+                                            ui.monospace(format!(
+                                                "{addr:012X}  {}",
+                                                hex.trim_end()
+                                            ));
+                                        }
+                                    });
+                            }
+                        });
+                        egui::Grid::new("arr_grid").striped(true).show(ui, |ui| {
+                            ui.strong(tr.arr_addr);
+                            for f in &self.struct_fields {
+                                ui.strong(format!("+{:X} {}", f.offset, f.ty.label()));
+                            }
+                            ui.end_row();
+
+                            let h = ui.spacing().interact_size.y;
+                            for r in 0..self.struct_rows {
+                                let row_addr = self.struct_base + r as u64 * stride;
+                                ui.monospace(format!("{row_addr:012X}"));
                                 for f in &self.struct_fields {
-                                    ui.strong(format!("+{:X} {}", f.offset, f.ty.label()));
+                                    let addr = row_addr + f.offset as u64;
+                                    let full = src
+                                        .and_then(|s| read_value(s, addr, f.ty))
+                                        .map(|v| v.display())
+                                        .unwrap_or_else(|| "—".into());
+                                    // Truncate long values (e.g. floats with
+                                    // many decimals) so a cell can't widen the
+                                    // grid; the full value shows on hover.
+                                    let shown = short_value(&full, 10);
+                                    let resp =
+                                        ui.add_sized([92.0, h], egui::Button::new(shown).small());
+                                    if resp.clicked() {
+                                        add = Some((addr, f.ty));
+                                    }
+                                    resp.on_hover_text(format!(
+                                        "{addr:#014X}\n{full} — {}",
+                                        tr.arr_cell_hint
+                                    ));
                                 }
                                 ui.end_row();
-
-                                let h = ui.spacing().interact_size.y;
-                                for r in 0..self.struct_rows {
-                                    let row_addr = self.struct_base + r as u64 * stride;
-                                    ui.monospace(format!("{row_addr:012X}"));
-                                    for f in &self.struct_fields {
-                                        let addr = row_addr + f.offset as u64;
-                                        let full = src
-                                            .and_then(|s| read_value(s, addr, f.ty))
-                                            .map(|v| v.display())
-                                            .unwrap_or_else(|| "—".into());
-                                        // Truncate long values (e.g. floats with
-                                        // many decimals) so a cell can't widen the
-                                        // grid; the full value shows on hover.
-                                        let shown = short_value(&full, 10);
-                                        let resp = ui
-                                            .add_sized([92.0, h], egui::Button::new(shown).small());
-                                        if resp.clicked() {
-                                            add = Some((addr, f.ty));
-                                        }
-                                        resp.on_hover_text(format!(
-                                            "{addr:#014X}\n{full} — {}",
-                                            tr.arr_cell_hint
-                                        ));
-                                    }
-                                    ui.end_row();
-                                }
-                            });
+                            }
                         });
-                });
+                    });
             });
 
         if detect {

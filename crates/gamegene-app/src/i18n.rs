@@ -193,7 +193,7 @@ static EN: Tr = Tr {
 
     tab_value: "Value scan",
     tab_group: "Group scan",
-    group_hint: "Find where all the values occur close together. They use the Type selected above.",
+    group_hint: "Enter the values as they are right now (one search, not before/after). It finds where they all occur close together and lists the first value's address — dissect or open it in the viewer to see the whole group.",
     group_values_hint: "values, e.g. 100 50 12",
     group_span: "within (bytes)",
 
@@ -305,7 +305,7 @@ static ZH: Tr = Tr {
 
     tab_value: "單值掃描",
     tab_group: "群組掃描",
-    group_hint: "尋找多個值同時靠在一起的位置。使用上方選擇的型別。",
+    group_hint: "輸入這些值「目前」的數值(一次搜尋,不是前後比較)。它會找出這些值彼此靠在一起的位置,並列出第一個值的位址 — 用「解析為陣列」或在檢視器打開就能看到整組。",
     group_values_hint: "多個值,如 100 50 12",
     group_span: "範圍(bytes)",
 

@@ -7,6 +7,22 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.11.0]
+
+### Fixed
+- Memory viewer and Array / structure windows no longer spill their content
+  past the window frame and can be resized freely. They dropped the nested
+  panels (which made the window auto-grow to its content); a fixed control bar
+  now sits above a single scroll area, so the window is a stable viewport and
+  the body scrolls within it.
+- Memory viewer no longer jitters when a shown value fluctuates — the window is
+  now a fixed size instead of resizing to its content every frame.
+
+### Changed
+- Group scan hint clarified: it is a single simultaneous search of the values
+  as they are *now* (not a before/after scan), and results list the first
+  value's address — dissect or open it in the viewer to see the whole group.
+
 ## [0.10.0]
 
 ### Changed
