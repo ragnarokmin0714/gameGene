@@ -80,17 +80,18 @@ pub fn foreground_process() -> Option<ProcessInfo> {
 }
 
 pub fn attach(pid: u32) -> Result<Box<dyn MemorySource>, MemError> {
-    let handle = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
-            false,
-            pid,
-        )
-    }
-    .map_err(|e| MemError::Read {
-        addr: 0,
-        reason: format!("OpenProcess failed: {e}"),
-    })?;
+    let full =
+        PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION;
+    // Fall back to read-only if we lack write permission (mirrors the Linux
+    // backend); scanning still works, only edits will fail with a clear error
+    // later.
+    let read_only = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ;
+    let handle = unsafe { OpenProcess(full, false, pid) }
+        .or_else(|_| unsafe { OpenProcess(read_only, false, pid) })
+        .map_err(|e| MemError::Read {
+            addr: 0,
+            reason: format!("OpenProcess failed: {e}"),
+        })?;
     Ok(Box::new(WindowsProcess { pid, handle }))
 }
 

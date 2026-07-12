@@ -82,7 +82,7 @@ impl MemorySource for LinuxProcess {
     fn module_base(&self, name: &str) -> Option<u64> {
         let maps = fs::read_to_string(format!("/proc/{}/maps", self.pid)).ok()?;
         for line in maps.lines() {
-            let path = line.split_whitespace().nth(5).unwrap_or("");
+            let path = maps_path(line);
             if Path::new(path).file_name().and_then(|n| n.to_str()) == Some(name) {
                 let start = line.split('-').next()?;
                 return u64::from_str_radix(start, 16).ok();
@@ -100,7 +100,7 @@ impl MemorySource for LinuxProcess {
         let mut by_path: HashMap<String, (u64, u64)> = HashMap::new();
         for line in maps.lines() {
             let range = line.split_whitespace().next().unwrap_or("");
-            let path = line.split_whitespace().nth(5).unwrap_or("");
+            let path = maps_path(line);
             if !path.starts_with('/') {
                 continue; // only real file-backed images
             }
@@ -128,6 +128,14 @@ impl MemorySource for LinuxProcess {
             })
             .collect()
     }
+}
+
+/// Pathname column of a maps line. Fields 1–5 are single-space separated; the
+/// pathname is everything after them, left-padded with spaces and possibly
+/// containing spaces itself, so split at most six times instead of on every
+/// whitespace run.
+fn maps_path(line: &str) -> &str {
+    line.splitn(6, ' ').nth(5).unwrap_or("").trim_start()
 }
 
 /// Parse one `/proc/<pid>/maps` line into a readable region, or `None` to skip.
