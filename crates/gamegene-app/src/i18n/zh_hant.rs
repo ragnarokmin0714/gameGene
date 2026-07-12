@@ -60,6 +60,10 @@ pub(super) static ZH: Tr = Tr {
     find_utf16: "文字 (UTF-16)",
     find_aob: "位元組 (hex)",
 
+    scanning: "掃描中…",
+    narrowing: "縮小中…",
+    cancel_scan: "取消",
+
     tab_value: "單值掃描",
     tab_group: "群組掃描",
     group_hint: "輸入這些值「目前」的數值 — 首次掃描會找出它們彼此靠在一起的位置,並列出第一個值的位址。想縮小範圍:先在遊戲裡改變數值,輸入新的一組數字,再按「再次掃描」。偏移欄會顯示其他值的相對位置;在結果上按右鍵可在記憶體檢視器開啟。",

@@ -60,6 +60,10 @@ pub(super) static EN: Tr = Tr {
     find_utf16: "Text (UTF-16)",
     find_aob: "Bytes (hex)",
 
+    scanning: "Scanning…",
+    narrowing: "Narrowing…",
+    cancel_scan: "Cancel",
+
     tab_value: "Value scan",
     tab_group: "Group scan",
     group_hint: "Enter the values as they are right now — First scan finds where they all sit close together and lists the first value's address. To narrow: change them in game, type the new numbers, and press Next scan. The offsets column shows where the other values sit; right-click a result to open it in the memory viewer.",

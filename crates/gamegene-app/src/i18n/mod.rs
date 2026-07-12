@@ -91,6 +91,10 @@ pub struct Tr {
     pub find_utf16: &'static str,
     pub find_aob: &'static str,
 
+    pub scanning: &'static str,
+    pub narrowing: &'static str,
+    pub cancel_scan: &'static str,
+
     pub tab_value: &'static str,
     pub tab_group: &'static str,
     pub group_hint: &'static str,

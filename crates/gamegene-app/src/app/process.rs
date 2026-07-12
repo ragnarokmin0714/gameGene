@@ -6,7 +6,7 @@ impl GameGeneApp {
     pub(super) fn attach_to(&mut self, pid: u32, name: String) {
         match attach(pid) {
             Ok(src) => {
-                self.source = Some(src);
+                self.source = Some(Arc::from(src));
                 self.attached_name = format!("{name} ({pid})");
                 self.session = None;
                 self.status = format!("Attached to {name} (pid {pid})");

@@ -14,6 +14,7 @@ use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
 use gamegene_core::MemorySource;
 use gamegene_platform::{attach, foreground_process, list_processes, ProcessInfo, BACKEND_NAME};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::fonts;
@@ -27,7 +28,10 @@ mod chrome;
 mod memview;
 mod process;
 mod scan;
+mod scan_job;
 mod table;
+
+use scan_job::{JobDone, JobKind, ScanJob};
 
 /// User-facing scan predicate choices.
 #[derive(Clone, Copy, PartialEq)]
@@ -144,7 +148,7 @@ pub struct GameGeneApp {
     // Attachment
     processes: Vec<ProcessInfo>,
     filter: String,
-    source: Option<Box<dyn MemorySource>>,
+    source: Option<Arc<dyn MemorySource>>,
     attached_name: String,
     selected_pid: Option<u32>,
     /// Last foreground process that wasn't ourselves — the "detect game" target.
@@ -156,6 +160,9 @@ pub struct GameGeneApp {
     value_text: String,
     value2_text: String,
     session: Option<ScanSession>,
+    /// A scan running on a background thread, if any. While set, the scan
+    /// controls show a progress bar and a cancel button instead.
+    scan_job: Option<ScanJob>,
 
     // Cheat table
     table: CheatTable,
@@ -249,6 +256,7 @@ impl GameGeneApp {
             value_text: String::new(),
             value2_text: String::new(),
             session: None,
+            scan_job: None,
             table: CheatTable::new(),
             entry_counter: 0,
             find_query: String::new(),
@@ -336,6 +344,10 @@ impl eframe::App for GameGeneApp {
         // Repaint at least once a second so the running-time clock ticks and
         // foreground detection stays current even when idle.
         ctx.request_repaint_after(Duration::from_millis(FREEZE_INTERVAL_MS.min(1000)));
+
+        // Pick up a finished background scan (installs results or clears on
+        // cancel). Kept before drawing so this frame shows the outcome.
+        self.poll_scan_job();
 
         self.handle_shortcuts(ctx);
 

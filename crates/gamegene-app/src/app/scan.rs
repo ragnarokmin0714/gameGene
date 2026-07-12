@@ -53,8 +53,11 @@ impl GameGeneApp {
     }
 
     pub(super) fn do_first_scan(&mut self) {
+        if self.scan_job.is_some() {
+            return; // a scan is already running
+        }
         self.normalize_between_inputs();
-        let Some(src) = self.source.as_deref() else {
+        let Some(src) = self.source.clone() else {
             self.status = "Attach to a process first.".into();
             return;
         };
@@ -65,16 +68,20 @@ impl GameGeneApp {
                 return;
             }
         };
-        match ScanSession::first_scan(src, self.value_type, compare) {
-            Ok(s) => {
-                self.status = format!("First scan: {} matches", s.len());
-                self.session = Some(s);
-            }
-            Err(e) => self.status = e.to_string(),
+        // Relative predicates need a previous scan; reject before spawning so
+        // the error shows immediately rather than after a thread round-trip.
+        if let Err(e) = compare_valid_for_first(compare) {
+            self.status = e;
+            return;
         }
+        self.status = "Scanning…".into();
+        self.scan_job = Some(ScanJob::first(src, self.value_type, compare));
     }
 
     pub(super) fn do_next_scan(&mut self) {
+        if self.scan_job.is_some() {
+            return;
+        }
         self.normalize_between_inputs();
         let compare = match self.build_compare() {
             Ok(c) => c,
@@ -83,13 +90,65 @@ impl GameGeneApp {
                 return;
             }
         };
-        let (Some(src), Some(session)) = (self.source.as_deref(), self.session.as_mut()) else {
+        let Some(src) = self.source.clone() else {
             self.status = "Run a first scan before narrowing.".into();
             return;
         };
-        match session.next_scan(src, compare) {
-            Ok(()) => self.status = format!("Narrowed to {} matches", session.len()),
-            Err(e) => self.status = e.to_string(),
+        let Some(session) = self.session.take() else {
+            self.status = "Run a first scan before narrowing.".into();
+            return;
+        };
+        self.status = "Narrowing…".into();
+        self.scan_job = Some(ScanJob::next(src, Box::new(session), compare));
+    }
+
+    /// Poll a running scan; when it finishes, install the result (or discard it
+    /// if the user cancelled) and clear the job. Called every frame from the
+    /// update loop.
+    pub(super) fn poll_scan_job(&mut self) {
+        let Some(job) = self.scan_job.as_mut() else {
+            return;
+        };
+        let cancelling = job.is_cancelling();
+        let Some(done) = job.poll() else {
+            return;
+        };
+        self.scan_job = None;
+        match done {
+            JobDone::First(result) => {
+                if cancelling {
+                    self.status = "Scan cancelled".into();
+                    return;
+                }
+                match result {
+                    Ok(s) => {
+                        self.status = if s.truncated() {
+                            format!(
+                                "Stopped at {} matches — value too common, narrow it",
+                                s.len()
+                            )
+                        } else {
+                            format!("First scan: {} matches", s.len())
+                        };
+                        self.session = Some(s);
+                    }
+                    Err(e) => self.status = e.to_string(),
+                }
+            }
+            JobDone::Next { session, result } => {
+                // Put the session back regardless; narrowing mutates it in place.
+                let session = *session;
+                if cancelling {
+                    self.status = "Scan cancelled".into();
+                    self.session = Some(session);
+                    return;
+                }
+                match result {
+                    Ok(()) => self.status = format!("Narrowed to {} matches", session.len()),
+                    Err(e) => self.status = e.to_string(),
+                }
+                self.session = Some(session);
+            }
         }
     }
 
@@ -226,28 +285,53 @@ impl GameGeneApp {
                 }
             });
 
-            ui.horizontal(|ui| {
-                // Once a scan is in progress, first scan is disabled until Reset
-                // so an accidental click can't wipe the narrowed results.
-                ui.add_enabled_ui(self.session.is_none(), |ui| {
-                    if ui.button(tr.first_scan).clicked() {
-                        self.do_first_scan();
+            // While a scan runs on the worker thread, replace the buttons with a
+            // progress bar and a cancel button; keep repainting so it animates.
+            if let Some(job) = self.scan_job.as_mut() {
+                let label = match job.kind {
+                    JobKind::First => tr.scanning,
+                    JobKind::Next => tr.narrowing,
+                };
+                ui.horizontal(|ui| {
+                    let mut bar = egui::ProgressBar::new(job.fraction().unwrap_or(0.0))
+                        .desired_width(220.0)
+                        .text(label);
+                    if job.fraction().is_none() {
+                        bar = bar.animate(true);
+                    }
+                    ui.add(bar);
+                    ui.add_enabled_ui(!job.is_cancelling(), |ui| {
+                        if ui.button(tr.cancel_scan).clicked() {
+                            job.request_cancel();
+                        }
+                    });
+                });
+                // Keep animating the bar while the worker runs.
+                ui.ctx().request_repaint();
+            } else {
+                ui.horizontal(|ui| {
+                    // Once a scan is in progress, first scan is disabled until Reset
+                    // so an accidental click can't wipe the narrowed results.
+                    ui.add_enabled_ui(self.session.is_none(), |ui| {
+                        if ui.button(tr.first_scan).clicked() {
+                            self.do_first_scan();
+                        }
+                    });
+                    ui.add_enabled_ui(self.session.is_some(), |ui| {
+                        if ui.button(tr.next_scan).clicked() {
+                            self.do_next_scan();
+                        }
+                    });
+                    if ui.button(tr.reset).clicked() {
+                        self.session = None;
+                        self.mode = ScanMode::Exact;
+                        self.status = "Scan reset".into();
+                    }
+                    if let Some(s) = &self.session {
+                        ui.label(RichText::new(format!("{} {}", s.len(), tr.matches)).weak());
                     }
                 });
-                ui.add_enabled_ui(self.session.is_some(), |ui| {
-                    if ui.button(tr.next_scan).clicked() {
-                        self.do_next_scan();
-                    }
-                });
-                if ui.button(tr.reset).clicked() {
-                    self.session = None;
-                    self.mode = ScanMode::Exact;
-                    self.status = "Scan reset".into();
-                }
-                if let Some(s) = &self.session {
-                    ui.label(RichText::new(format!("{} {}", s.len(), tr.matches)).weak());
-                }
-            });
+            }
 
             // Find bytes / text — a locate tool (collapsed by default).
             let mut do_find = false;
@@ -515,6 +599,18 @@ impl GameGeneApp {
                     });
             });
         (add_addr, goto_addr)
+    }
+}
+
+/// Reject relative predicates for a first scan (they need a previous scan to
+/// compare against). Mirrors the engine's own check, but done before spawning
+/// the worker so the error is immediate.
+fn compare_valid_for_first(c: Compare) -> Result<(), String> {
+    match c {
+        Compare::Changed | Compare::Unchanged | Compare::Increased | Compare::Decreased => Err(
+            "That comparison needs a previous scan — first scan with a value or Unknown.".into(),
+        ),
+        _ => Ok(()),
     }
 }
 
