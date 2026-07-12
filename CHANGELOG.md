@@ -7,6 +7,21 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.10.0]
+
+### Changed
+- Scan panel now has **tabs**: "Value scan" (the usual type + exact/greater/
+  between/… scan) and "Group scan". Group scan moved out of a cramped
+  collapsible into its own tab with a full results list — double-click, right-
+  click, or the button to add a hit to the table, same as normal results.
+- Memory viewer and Array / structure windows now keep all their content inside
+  one scroll area under a fixed control bar, so the windows resize freely
+  without the inspector, fill controls, or grid spilling outside the frame.
+
+### Fixed
+- Array / structure cells truncate long values (e.g. floats with many decimals)
+  so a single cell can't widen the grid; the full value shows on hover.
+
 ## [0.9.0]
 
 ### Added

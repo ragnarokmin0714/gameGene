@@ -80,7 +80,8 @@ pub struct Tr {
     pub find_utf16: &'static str,
     pub find_aob: &'static str,
 
-    pub group_title: &'static str,
+    pub tab_value: &'static str,
+    pub tab_group: &'static str,
     pub group_hint: &'static str,
     pub group_values_hint: &'static str,
     pub group_span: &'static str,
@@ -190,7 +191,8 @@ static EN: Tr = Tr {
     find_utf16: "Text (UTF-16)",
     find_aob: "Bytes (hex)",
 
-    group_title: "Group scan (several values)",
+    tab_value: "Value scan",
+    tab_group: "Group scan",
     group_hint: "Find where all the values occur close together. They use the Type selected above.",
     group_values_hint: "values, e.g. 100 50 12",
     group_span: "within (bytes)",
@@ -301,7 +303,8 @@ static ZH: Tr = Tr {
     find_utf16: "文字 (UTF-16)",
     find_aob: "位元組 (hex)",
 
-    group_title: "群組掃描(多個值)",
+    tab_value: "單值掃描",
+    tab_group: "群組掃描",
     group_hint: "尋找多個值同時靠在一起的位置。使用上方選擇的型別。",
     group_values_hint: "多個值,如 100 50 12",
     group_span: "範圍(bytes)",
