@@ -7,6 +7,35 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.12.0]
+
+### Fixed
+- Memory viewer and Array / structure windows are clamped inside the app
+  window every frame. Window sizes are remembered across restarts, so a size
+  saved by an older version (whose layout auto-grew past the frame) used to
+  come back after updating — bigger than the app window, with the bottom and
+  the resize corner out of reach. Both windows also gained a minimum size, and
+  their control bars wrap at narrow widths instead of poking past the frame.
+- Cheat table rows no longer shake when a watched value fluctuates — the live
+  "now" value sits in a fixed-width cell (full value on hover), as the scan
+  results and the memory-viewer inspector already did.
+
+### Added
+- **Japanese UI** (日本語), selectable next to English and 繁體中文.
+- **Group rescan**: after a group scan, change the values in game, type the new
+  numbers, and press "Next scan" to narrow the hits — each hit remembers where
+  every value matched, so the whole group is re-checked, not just the first
+  value. This is the before/after workflow users expected from the group tab.
+- Headless layout regression tests for the viewer windows: window size must
+  stay stable while a value fluctuates, resizing is clamped to the viewport,
+  and nothing may paint past the frame.
+
+### Changed
+- `app.rs` (2000+ lines) split into focused modules — `app/{chrome, process,
+  scan, table, memview, array}.rs` — and `i18n.rs` into one file per language
+  (`i18n/{en, zh_hant, ja}.rs`), so adding a language or a panel touches one
+  small file. No behavior change.
+
 ## [0.11.0]
 
 ### Fixed
