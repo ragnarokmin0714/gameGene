@@ -57,7 +57,7 @@ impl Compare {
         }
     }
 
-    fn eval(&self, current: ScanValue, previous: Option<ScanValue>) -> bool {
+    pub(crate) fn eval(&self, current: ScanValue, previous: Option<ScanValue>) -> bool {
         match self {
             Compare::Unknown => true,
             Compare::Exact(t) => current == *t,
@@ -264,6 +264,56 @@ fn scan_regions(source: &dyn MemorySource, vt: ValueType, compare: Compare) -> V
         }
     }
     matches
+}
+
+/// Collect up to `cap` addresses of aligned slots matching `compare` — the
+/// per-value search behind the group scan. The same walk as [`scan_regions`],
+/// but address-only and capped, because a loose predicate (a float range) can
+/// match millions of slots.
+pub(crate) fn collect_addresses(
+    source: &dyn MemorySource,
+    vt: ValueType,
+    compare: Compare,
+    cap: usize,
+) -> Vec<u64> {
+    let size = vt.size();
+    let mut out = Vec::new();
+    let mut buf = vec![0u8; SCAN_CHUNK_SIZE];
+
+    for region in source.regions() {
+        let mut offset = 0u64;
+        while offset < region.size {
+            let want = ((region.size - offset) as usize).min(SCAN_CHUNK_SIZE);
+            let read_addr = region.base + offset;
+            let got = match source.read(read_addr, &mut buf[..want]) {
+                Ok(n) => n,
+                Err(_) => {
+                    offset += want as u64;
+                    continue;
+                }
+            };
+            if got < size {
+                if got == 0 {
+                    offset += want as u64;
+                    continue;
+                }
+                break;
+            }
+            let mut i = 0;
+            while i + size <= got {
+                let current = ScanValue::from_le_bytes(vt, &buf[i..]);
+                if compare.eval(current, None) {
+                    out.push(read_addr + i as u64);
+                    if out.len() >= cap {
+                        return out;
+                    }
+                }
+                i += size;
+            }
+            offset += got as u64;
+        }
+    }
+    out
 }
 
 /// First scan for `Unknown`: capture readable regions as contiguous byte runs.

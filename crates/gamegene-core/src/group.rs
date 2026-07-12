@@ -5,16 +5,53 @@
 //! places where they all sit close together — a good way to locate a struct
 //! when you know a few of its fields.
 //!
-//! Approach: search each value independently (reusing [`find_pattern`]), then
-//! keep the addresses of the first value that have every other value within
-//! `span` bytes (in either direction). Each hit records *where* every value
-//! matched, so [`group_rescan`] can later narrow the results with a fresh set
-//! of numbers (change the values in game, type the new ones, rescan — the
+//! Approach: search each value independently over aligned slots, then keep the
+//! addresses of the first value that have every other value within `span`
+//! bytes (in either direction). Each hit records *where* every value matched,
+//! so [`group_rescan`] can later narrow the results with a fresh set of
+//! numbers (change the values in game, type the new ones, rescan — the
 //! before/after workflow of a single-value next scan).
+//!
+//! A value can be a [`GroupQuery::Range`] instead of an exact number — the way
+//! to search floats when the game only shows the integer part (a HUD "12" is
+//! really 12.37 in memory, which an exact byte match can never hit).
 
-use crate::find::find_pattern;
 use crate::process::MemorySource;
-use crate::value::ScanValue;
+use crate::scan::{collect_addresses, Compare};
+use crate::value::{ScanValue, ValueType};
+
+/// One value of a group scan: match exactly, or anywhere within an inclusive
+/// range (for floats whose exact bits are unknown).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GroupQuery {
+    Exact(ScanValue),
+    Range(ScanValue, ScanValue),
+}
+
+impl GroupQuery {
+    fn value_type(&self) -> ValueType {
+        match self {
+            GroupQuery::Exact(v) | GroupQuery::Range(v, _) => v.value_type(),
+        }
+    }
+
+    fn compare(&self) -> Compare {
+        match *self {
+            GroupQuery::Exact(v) => Compare::Exact(v),
+            GroupQuery::Range(lo, hi) => Compare::Between(lo, hi),
+        }
+    }
+
+    /// Does memory at `addr` currently satisfy this query?
+    fn holds_at(&self, src: &dyn MemorySource, addr: u64) -> bool {
+        let size = self.value_type().size();
+        let mut buf = [0u8; 8];
+        matches!(src.read(addr, &mut buf[..size]), Ok(n) if n == size)
+            && self
+                .compare()
+                .eval(ScanValue::from_le_bytes(self.value_type(), &buf), None)
+    }
+}
 
 /// How many matches to gather per value before correlating. Values in a group
 /// scan are meant to be fairly specific; very common values (0, 1) can exceed
@@ -30,23 +67,23 @@ pub struct GroupHit {
     pub others: Vec<u64>,
 }
 
-/// Find up to `max_results` addresses of `values[0]` that have every other
-/// value within `span` bytes. With a single value this is just a plain search.
+/// Find up to `max_results` addresses of `queries[0]` that have every other
+/// query within `span` bytes. With a single query this is just a plain search.
+/// Matches are aligned to each query's value size (game struct fields are).
 pub fn group_scan(
     src: &dyn MemorySource,
-    values: &[ScanValue],
+    queries: &[GroupQuery],
     span: u64,
     max_results: usize,
 ) -> Vec<GroupHit> {
-    if values.is_empty() || max_results == 0 {
+    if queries.is_empty() || max_results == 0 {
         return Vec::new();
     }
 
-    let mut lists: Vec<Vec<u64>> = values
+    let mut lists: Vec<Vec<u64>> = queries
         .iter()
-        .map(|v| {
-            let pattern = v.to_le_bytes().into_iter().map(Some).collect();
-            let mut hits = find_pattern(src, &pattern, PER_VALUE_CAP);
+        .map(|q| {
+            let mut hits = collect_addresses(src, q.value_type(), q.compare(), PER_VALUE_CAP);
             hits.sort_unstable();
             hits
         })
@@ -71,34 +108,27 @@ pub fn group_scan(
     out
 }
 
-/// Narrow previous hits with a fresh set of values ("next group scan"): a hit
-/// survives only if its anchor now holds `values[0]` and each recorded address
-/// holds its corresponding value. `values` must pair up with the original scan
-/// (same count, same order); hits from a different shape are dropped.
+/// Narrow previous hits with a fresh set of queries ("next group scan"): a hit
+/// survives only if its anchor now satisfies `queries[0]` and each recorded
+/// address satisfies its corresponding query. `queries` must pair up with the
+/// original scan (same count, same order); hits from a different shape are
+/// dropped.
 pub fn group_rescan(
     src: &dyn MemorySource,
     hits: &[GroupHit],
-    values: &[ScanValue],
+    queries: &[GroupQuery],
 ) -> Vec<GroupHit> {
-    let Some((first, rest)) = values.split_first() else {
+    let Some((first, rest)) = queries.split_first() else {
         return Vec::new();
     };
     hits.iter()
         .filter(|h| {
             h.others.len() == rest.len()
-                && reads_as(src, h.anchor, first)
-                && h.others.iter().zip(rest).all(|(&a, v)| reads_as(src, a, v))
+                && first.holds_at(src, h.anchor)
+                && h.others.iter().zip(rest).all(|(&a, q)| q.holds_at(src, a))
         })
         .cloned()
         .collect()
-}
-
-/// Does memory at `addr` currently hold exactly `v` (little-endian bytes)?
-fn reads_as(src: &dyn MemorySource, addr: u64, v: &ScanValue) -> bool {
-    let want = v.to_le_bytes();
-    let mut buf = [0u8; 16];
-    let got = &mut buf[..want.len()];
-    matches!(src.read(addr, got), Ok(n) if n == want.len()) && *got == want[..]
 }
 
 /// The element of `sorted` within `span` of `center` that lies closest to it.
@@ -123,6 +153,15 @@ mod tests {
         hits.iter().map(|h| h.anchor).collect()
     }
 
+    fn exact(v: i32) -> GroupQuery {
+        GroupQuery::Exact(ScanValue::I32(v))
+    }
+
+    /// A float known only to its integer part: `12` → the range `[12, 13]`.
+    fn about(v: f32) -> GroupQuery {
+        GroupQuery::Range(ScanValue::F32(v), ScanValue::F32(v + 1.0))
+    }
+
     #[test]
     fn finds_only_the_grouped_occurrence() {
         let base = 0x10_000u64;
@@ -133,8 +172,8 @@ mod tests {
         // A decoy 100 far away, with no 50 nearby.
         mem.poke(base + 0x800, &100i32.to_le_bytes());
 
-        let values = [ScanValue::I32(100), ScanValue::I32(50)];
-        let hits = group_scan(&mem, &values, 64, 100);
+        let queries = [exact(100), exact(50)];
+        let hits = group_scan(&mem, &queries, 64, 100);
         assert_eq!(anchors(&hits), vec![base + 0x100]);
         // The hit remembers where the 50 matched.
         assert_eq!(hits[0].others, vec![base + 0x108]);
@@ -147,12 +186,12 @@ mod tests {
         mem.poke(base + 0x10, &7i32.to_le_bytes());
         mem.poke(base + 0x400, &9i32.to_le_bytes()); // far from the 7
 
-        let values = [ScanValue::I32(7), ScanValue::I32(9)];
+        let queries = [exact(7), exact(9)];
         // Too small a span: no group.
-        assert!(group_scan(&mem, &values, 16, 100).is_empty());
+        assert!(group_scan(&mem, &queries, 16, 100).is_empty());
         // Large enough span: found.
         assert_eq!(
-            anchors(&group_scan(&mem, &values, 0x400, 100)),
+            anchors(&group_scan(&mem, &queries, 0x400, 100)),
             vec![base + 0x10]
         );
     }
@@ -166,8 +205,8 @@ mod tests {
         mem.poke(base + 0x140, &50i32.to_le_bytes());
         mem.poke(base + 0x108, &50i32.to_le_bytes());
 
-        let values = [ScanValue::I32(100), ScanValue::I32(50)];
-        let hits = group_scan(&mem, &values, 0x100, 100);
+        let queries = [exact(100), exact(50)];
+        let hits = group_scan(&mem, &queries, 0x100, 100);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].others, vec![base + 0x108]);
     }
@@ -182,7 +221,7 @@ mod tests {
             mem.poke(base + off + 4, &14i32.to_le_bytes());
         }
 
-        let before = [ScanValue::I32(10), ScanValue::I32(14)];
+        let before = [exact(10), exact(14)];
         let hits = group_scan(&mem, &before, 64, 100);
         assert_eq!(hits.len(), 2);
 
@@ -190,10 +229,34 @@ mod tests {
         mem.poke(base + 0x600, &27i32.to_le_bytes());
         mem.poke(base + 0x604, &35i32.to_le_bytes());
 
-        let after = [ScanValue::I32(27), ScanValue::I32(35)];
+        let after = [exact(27), exact(35)];
         let narrowed = group_rescan(&mem, &hits, &after);
         assert_eq!(anchors(&narrowed), vec![base + 0x600]);
         assert_eq!(narrowed[0].others, vec![base + 0x604]);
+    }
+
+    #[test]
+    fn float_ranges_find_values_with_unknown_decimals() {
+        let base = 0x60_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        // A struct of three floats a HUD would show as 12, 20 and 6.
+        mem.poke(base + 0x200, &12.37f32.to_le_bytes());
+        mem.poke(base + 0x204, &20.71f32.to_le_bytes());
+        mem.poke(base + 0x208, &6.02f32.to_le_bytes());
+        // A decoy in the 12…13 range with no partners nearby.
+        mem.poke(base + 0x900, &12.9f32.to_le_bytes());
+
+        let queries = [about(12.0), about(20.0), about(6.0)];
+        let hits = group_scan(&mem, &queries, 64, 100);
+        assert_eq!(anchors(&hits), vec![base + 0x200]);
+        assert_eq!(hits[0].others, vec![base + 0x204, base + 0x208]);
+
+        // Rescan after the values drifted within new ranges: HP fell to 11.x.
+        mem.poke(base + 0x200, &11.9f32.to_le_bytes());
+        let narrowed = group_rescan(&mem, &hits, &[about(11.0), about(20.0), about(6.0)]);
+        assert_eq!(anchors(&narrowed), vec![base + 0x200]);
+        // A range the value left no longer matches.
+        assert!(group_rescan(&mem, &hits, &[about(30.0), about(20.0), about(6.0)]).is_empty());
     }
 
     #[test]
@@ -203,10 +266,10 @@ mod tests {
         mem.poke(base + 0x10, &5i32.to_le_bytes());
         mem.poke(base + 0x18, &6i32.to_le_bytes());
 
-        let hits = group_scan(&mem, &[ScanValue::I32(5), ScanValue::I32(6)], 64, 100);
+        let hits = group_scan(&mem, &[exact(5), exact(6)], 64, 100);
         assert_eq!(hits.len(), 1);
         // Rescanning with three values can't pair up with a two-value hit.
-        let three = [ScanValue::I32(5), ScanValue::I32(6), ScanValue::I32(7)];
+        let three = [exact(5), exact(6), exact(7)];
         assert!(group_rescan(&mem, &hits, &three).is_empty());
     }
 }

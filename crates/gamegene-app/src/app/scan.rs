@@ -118,28 +118,21 @@ impl GameGeneApp {
         self.status = format!("Found {} match(es)", self.find_results.len());
     }
 
-    /// Group scan: parse the space/comma-separated values (as the selected type)
-    /// Parse the group-scan query into typed values (at least two).
-    fn parse_group_values(&mut self) -> Option<Vec<ScanValue>> {
-        let ty = self.value_type;
-        let values: Result<Vec<ScanValue>, _> = self
-            .group_query
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|s| !s.is_empty())
-            .map(|t| ScanValue::parse(ty, t))
-            .collect();
-        let values = match values {
-            Ok(v) => v,
+    /// Parse the group-scan query into typed queries (at least two), reporting
+    /// problems in the status line.
+    fn parse_group_values(&mut self) -> Option<Vec<GroupQuery>> {
+        let queries = match parse_group_query(self.value_type, &self.group_query) {
+            Ok(q) => q,
             Err(e) => {
-                self.status = e.to_string();
+                self.status = e;
                 return None;
             }
         };
-        if values.len() < 2 {
+        if queries.len() < 2 {
             self.status = "Enter at least two values, separated by spaces.".into();
             return None;
         }
-        Some(values)
+        Some(queries)
     }
 
     /// and find where they all occur within `group_span` bytes of each other.
@@ -225,19 +218,11 @@ impl GameGeneApp {
 
             ui.horizontal(|ui| {
                 if self.mode.needs_value() {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.value_text)
-                            .desired_width(120.0)
-                            .hint_text(tr.value_hint),
-                    );
+                    ui.add(control_edit(&mut self.value_text, 120.0).hint_text(tr.value_hint));
                 }
                 if self.mode.needs_two() {
                     ui.label("…");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.value2_text)
-                            .desired_width(120.0)
-                            .hint_text(tr.value_hint),
-                    );
+                    ui.add(control_edit(&mut self.value2_text, 120.0).hint_text(tr.value_hint));
                 }
             });
 
@@ -284,11 +269,8 @@ impl GameGeneApp {
                             );
                             ui.selectable_value(&mut self.find_mode, FindMode::Aob, tr.find_aob);
                         });
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut self.find_query)
-                            .desired_width(180.0)
-                            .hint_text(tr.find_hint),
-                    );
+                    let resp =
+                        ui.add(control_edit(&mut self.find_query, 180.0).hint_text(tr.find_hint));
                     let entered =
                         resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     if ui.button(tr.find_search).clicked() || entered {
@@ -360,11 +342,7 @@ impl GameGeneApp {
         let mut do_group = false;
         let mut do_rescan = false;
         ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.group_query)
-                    .desired_width(200.0)
-                    .hint_text(tr.group_values_hint),
-            );
+            ui.add(control_edit(&mut self.group_query, 200.0).hint_text(tr.group_values_hint));
             ui.label(tr.group_span);
             ui.add(egui::DragValue::new(&mut self.group_span).range(4..=65536));
             if ui.button(tr.first_scan).clicked() {
@@ -382,6 +360,16 @@ impl GameGeneApp {
                 do_rescan = true;
             }
         });
+        // Live interpretation of the query: floats become v…v+1 ranges, so
+        // typing `12` immediately shows the `12…13` that will be searched.
+        if let Ok(qs) = parse_group_query(self.value_type, &self.group_query) {
+            if qs.iter().any(|q| matches!(q, GroupQuery::Range(..))) {
+                let ranges: Vec<String> = qs.iter().map(group_query_label).collect();
+                ui.label(
+                    RichText::new(format!("{} {}", tr.group_range_note, ranges.join("  "))).weak(),
+                );
+            }
+        }
         if do_group {
             self.do_group_scan();
         }
@@ -391,8 +379,67 @@ impl GameGeneApp {
 
         ui.separator();
         ui.strong(tr.results);
-        let addrs: Vec<u64> = self.group_results.iter().map(|h| h.anchor).collect();
-        let (add_addr, goto_addr) = self.results_list(ui, "group_results", &addrs);
+        let mut add_addr = None;
+        let mut goto_addr = None;
+        let src = self.source.as_deref();
+        let vt = self.value_type;
+        egui::ScrollArea::vertical()
+            .id_source("group_results")
+            .max_height(ui.available_height())
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("group_results_grid")
+                    .num_columns(4)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for hit in &self.group_results {
+                            let address = hit.anchor;
+                            let resp = ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new(format!("{address:#014x}")).monospace(),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .on_hover_text(tr.row_hint);
+                            if resp.double_clicked() {
+                                add_addr = Some(address);
+                            }
+                            resp.context_menu(|ui| {
+                                if ui.button(tr.add_table).clicked() {
+                                    add_addr = Some(address);
+                                    ui.close_menu();
+                                }
+                                if ui.button(tr.mem_view).clicked() {
+                                    goto_addr = Some(address);
+                                    ui.close_menu();
+                                }
+                            });
+                            let now = src
+                                .and_then(|s| read_value(s, address, vt))
+                                .map(|v| v.display())
+                                .unwrap_or_else(|| "—".into());
+                            ui.add_sized(
+                                [90.0, ui.spacing().interact_size.y],
+                                egui::Label::new(&now).truncate(),
+                            )
+                            .on_hover_text(&now);
+                            // Where the other values sit relative to the anchor
+                            // — the group's layout, no Dissect needed (Dissect
+                            // is for repeating arrays, not a single struct).
+                            let (cells, lines) = group_offsets(src, vt, hit);
+                            ui.add_sized(
+                                [150.0, ui.spacing().interact_size.y],
+                                egui::Label::new(RichText::new(cells).monospace()).truncate(),
+                            )
+                            .on_hover_text(format!("{}\n{lines}", tr.group_others_hint));
+                            if ui.small_button(tr.add_table).clicked() {
+                                add_addr = Some(address);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
         if let Some(addr) = add_addr {
             self.add_to_table(addr, self.value_type);
         }
@@ -468,5 +515,95 @@ impl GameGeneApp {
                     });
             });
         (add_addr, goto_addr)
+    }
+}
+
+/// Parse a group-scan query string: values separated by spaces or commas;
+/// brackets and parentheses are ignored, so a pasted `[ 100  50  12 ]` works.
+/// Float values match a `v…v+1` range (the HUD usually shows only the integer
+/// part, so the exact bits are unknowable); integers match exactly.
+fn parse_group_query(ty: ValueType, text: &str) -> Result<Vec<GroupQuery>, String> {
+    text.split(|c: char| matches!(c, ',' | '[' | ']' | '(' | ')') || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .map(|tok| {
+            let v = ScanValue::parse(ty, tok).map_err(|e| e.to_string())?;
+            Ok(match v {
+                ScanValue::F32(f) => GroupQuery::Range(v, ScanValue::F32(f + 1.0)),
+                ScanValue::F64(f) => GroupQuery::Range(v, ScanValue::F64(f + 1.0)),
+                _ => GroupQuery::Exact(v),
+            })
+        })
+        .collect()
+}
+
+/// Render a group query for the interpretation line under the input:
+/// `12…13` for a range, the plain value otherwise.
+fn group_query_label(q: &GroupQuery) -> String {
+    match q {
+        GroupQuery::Exact(v) => v.display(),
+        GroupQuery::Range(lo, hi) => format!("{}…{}", lo.display(), hi.display()),
+    }
+}
+
+/// Format a hit's other values as signed hex offsets from the anchor, with
+/// their live values: a compact cell (`+4:20.71  +8:6.02`) plus one hover line
+/// per value with the full number and absolute address.
+fn group_offsets(
+    src: Option<&dyn MemorySource>,
+    vt: ValueType,
+    hit: &GroupHit,
+) -> (String, String) {
+    let mut cells = Vec::new();
+    let mut lines = Vec::new();
+    for &a in &hit.others {
+        let delta = a as i128 - hit.anchor as i128;
+        let off = if delta >= 0 {
+            format!("+{delta:X}")
+        } else {
+            format!("-{:X}", -delta)
+        };
+        let val = src
+            .and_then(|s| read_value(s, a, vt))
+            .map(|v| v.display())
+            .unwrap_or_else(|| "—".into());
+        cells.push(format!("{off}:{}", short_value(&val, 8)));
+        lines.push(format!("{off} = {val} @ {a:#014x}"));
+    }
+    (cells.join("  "), lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_query_ignores_brackets_and_commas() {
+        let qs = parse_group_query(ValueType::I32, "[ 100,   50    12 ]").unwrap();
+        assert_eq!(
+            qs,
+            vec![
+                GroupQuery::Exact(ScanValue::I32(100)),
+                GroupQuery::Exact(ScanValue::I32(50)),
+                GroupQuery::Exact(ScanValue::I32(12)),
+            ]
+        );
+    }
+
+    #[test]
+    fn group_query_floats_become_plus_one_ranges() {
+        let qs = parse_group_query(ValueType::F32, "12 20.5").unwrap();
+        assert_eq!(
+            qs,
+            vec![
+                GroupQuery::Range(ScanValue::F32(12.0), ScanValue::F32(13.0)),
+                GroupQuery::Range(ScanValue::F32(20.5), ScanValue::F32(21.5)),
+            ]
+        );
+        assert_eq!(group_query_label(&qs[0]), "12.0…13.0");
+    }
+
+    #[test]
+    fn group_query_rejects_junk() {
+        assert!(parse_group_query(ValueType::I32, "100 abc").is_err());
     }
 }

@@ -51,7 +51,7 @@ impl GameGeneApp {
                             self.attach_to(pid, name);
                         }
                     }
-                    if self.source.is_some() && ui.small_button(tr.detach).clicked() {
+                    if self.source.is_some() && ui.button(tr.detach).clicked() {
                         self.source = None;
                         self.attached_name.clear();
                         self.session = None;

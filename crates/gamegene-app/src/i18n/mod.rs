@@ -96,6 +96,8 @@ pub struct Tr {
     pub group_hint: &'static str,
     pub group_values_hint: &'static str,
     pub group_span: &'static str,
+    pub group_range_note: &'static str,
+    pub group_others_hint: &'static str,
 
     pub mem_view: &'static str,
     pub mem_title: &'static str,

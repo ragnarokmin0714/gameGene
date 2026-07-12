@@ -62,9 +62,11 @@ pub(super) static EN: Tr = Tr {
 
     tab_value: "Value scan",
     tab_group: "Group scan",
-    group_hint: "Enter the values as they are right now — First scan finds where they all sit close together and lists the first value's address. To narrow: change them in game, type the new numbers, and press Next scan. Dissect or open a result in the viewer to see the whole group.",
+    group_hint: "Enter the values as they are right now — First scan finds where they all sit close together and lists the first value's address. To narrow: change them in game, type the new numbers, and press Next scan. The offsets column shows where the other values sit; right-click a result to open it in the memory viewer.",
     group_values_hint: "values, e.g. 100 50 12",
     group_span: "within (bytes)",
+    group_range_note: "floats search as ranges:",
+    group_others_hint: "The other values, as offsets from this address — right-click it to see the whole struct in the memory viewer.",
 
     mem_view: "Memory",
     mem_title: "Memory viewer",

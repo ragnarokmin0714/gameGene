@@ -11,6 +11,18 @@ use eframe::egui::{self};
 
 const SERIF: &[u8] = include_bytes!("../assets/serif.ttf");
 
+/// Mirror of `theme::CONTROL_HEIGHT` (theme is private to the binary).
+const CONTROL_HEIGHT: f32 = 28.0;
+
+/// Replicate the control sizing from `theme::apply`, which the centreline
+/// guarantees depend on.
+fn install_control_spacing(ctx: &egui::Context) {
+    ctx.style_mut(|s| {
+        s.spacing.interact_size.y = CONTROL_HEIGHT;
+        s.spacing.button_padding = egui::vec2(12.0, 6.0);
+    });
+}
+
 /// Everything one simulated frame reports back.
 struct Frame {
     /// The whole window rect (frame + title bar).
@@ -60,10 +72,15 @@ fn run_frame(ctx: &egui::Context, buf: &[u8; 256], events: Vec<egui::Event>) -> 
                 ui.horizontal_wrapped(|ui| {
                     ui.label("0x");
                     let mut addr = String::from("00400000");
-                    ui.add(egui::TextEdit::singleline(&mut addr).desired_width(130.0));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut addr)
+                            .desired_width(130.0)
+                            .vertical_align(egui::Align::Center)
+                            .min_size(egui::vec2(0.0, CONTROL_HEIGHT)),
+                    );
                     let _ = ui.button("Go");
-                    let _ = ui.small_button("- 256");
-                    let _ = ui.small_button("+ 256");
+                    let _ = ui.button("- 256");
+                    let _ = ui.button("+ 256");
                 });
                 ui.separator();
                 egui::ScrollArea::both()
@@ -142,6 +159,85 @@ fn test_bytes() -> [u8; 256] {
         *b = (i * 7) as u8;
     }
     buf
+}
+
+/// 0.12.0 feedback: control rows mixed full-size and small buttons and shorter
+/// text inputs, so rows looked vertically ragged. Replicate one control row
+/// (the memory-viewer address bar) and one array-window record row and assert
+/// everything shares a height / sits on one centreline.
+#[test]
+fn control_rows_and_grid_rows_share_a_centreline() {
+    let ctx = egui::Context::default();
+    install_serif(&ctx);
+    install_control_spacing(&ctx);
+
+    let mut controls: Vec<egui::Rect> = Vec::new();
+    let mut row_label = egui::Rect::NOTHING;
+    let mut row_cells: Vec<egui::Rect> = Vec::new();
+    // A Grid sizes its rows/columns from the previous frame's state, so run a
+    // few frames and assert on the settled layout (what the user sees).
+    for _frame in 0..3 {
+        controls.clear();
+        row_cells.clear();
+        let raw = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                // The address bar: input and buttons all at the control height.
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("0x");
+                    let mut addr = String::from("00400000");
+                    let edit = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut addr)
+                                .desired_width(130.0)
+                                .vertical_align(egui::Align::Center)
+                                .min_size(egui::vec2(0.0, CONTROL_HEIGHT)),
+                        )
+                        .rect;
+                    // A TextEdit response reports the inner rect; its painted frame
+                    // is that plus the default margin (egui 0.28 builder.rs). The
+                    // frame is what must line up with the buttons.
+                    controls.push(edit.expand2(egui::vec2(4.0, 2.0)));
+                    controls.push(ui.button("Go").rect);
+                    controls.push(ui.button("- 256").rect);
+                    controls.push(ui.button("+ 256").rect);
+                });
+                // One record row of the array grid: address label + value cells.
+                egui::Grid::new("arr").striped(true).show(ui, |ui| {
+                    row_label = ui.monospace("000000400000").rect;
+                    let h = ui.spacing().interact_size.y;
+                    for v in ["100", "3.500"] {
+                        row_cells.push(ui.add_sized([92.0, h], egui::Button::new(v).small()).rect);
+                    }
+                    ui.end_row();
+                });
+            });
+        });
+    }
+
+    let first = controls[0];
+    for r in &controls {
+        assert!(
+            (r.height() - first.height()).abs() <= 1.0,
+            "control heights differ: {controls:#?}"
+        );
+        assert!(
+            (r.center().y - first.center().y).abs() <= 1.0,
+            "controls are off the row centreline: {controls:#?}"
+        );
+    }
+    for c in &row_cells {
+        assert!(
+            (row_label.center().y - c.center().y).abs() <= 1.0,
+            "grid label not centred against its row's cells: label {row_label:?} cell {c:?}"
+        );
+    }
 }
 
 /// A fluctuating live value must not change the window size frame to frame.

@@ -6,6 +6,12 @@
 
 use eframe::egui::{self, Color32, Rounding, Stroke, Visuals};
 
+/// Height of one standard control in toolbar rows. Buttons pick it up via
+/// `interact_size.y`; text inputs via the app's `control_edit` helper. One
+/// value, so a row mixing the two shares a single centreline instead of
+/// looking vertically ragged.
+pub const CONTROL_HEIGHT: f32 = 28.0;
+
 /// Which colour skin to paint with.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Skin {
@@ -145,7 +151,7 @@ pub fn apply(ctx: &egui::Context, skin: Skin, dark: bool) {
         s.spacing.item_spacing = egui::vec2(8.0, 8.0);
         s.spacing.button_padding = egui::vec2(12.0, 6.0);
         s.spacing.window_margin = egui::Margin::same(14.0);
-        s.spacing.interact_size.y = 28.0;
+        s.spacing.interact_size.y = CONTROL_HEIGHT;
         s.text_styles.insert(
             TextStyle::Heading,
             FontId::new(21.0, FontFamily::Proportional),

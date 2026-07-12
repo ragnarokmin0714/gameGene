@@ -5,7 +5,7 @@ use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
-use gamegene_core::group::{group_rescan, group_scan, GroupHit};
+use gamegene_core::group::{group_rescan, group_scan, GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
@@ -371,6 +371,17 @@ fn short_value(s: &str, max: usize) -> String {
     }
     let head: String = s.chars().take(max.saturating_sub(1)).collect();
     format!("{head}…")
+}
+
+/// A single-line text input at the standard control height
+/// ([`theme::CONTROL_HEIGHT`]). A plain `TextEdit` is shorter than a button,
+/// so a control row mixing the two looks vertically ragged; control bars use
+/// this so every control in the row shares one height and centreline.
+fn control_edit(text: &mut String, width: f32) -> egui::TextEdit<'_> {
+    egui::TextEdit::singleline(text)
+        .desired_width(width)
+        .vertical_align(egui::Align::Center)
+        .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT))
 }
 
 /// Format a duration as `HH:MM:SS` for the running-time display.

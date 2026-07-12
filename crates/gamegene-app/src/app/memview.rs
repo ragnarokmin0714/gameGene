@@ -51,9 +51,7 @@ impl GameGeneApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("0x");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.hex_addr_input)
-                            .desired_width(130.0)
-                            .hint_text(tr.mem_addr_hint),
+                        control_edit(&mut self.hex_addr_input, 130.0).hint_text(tr.mem_addr_hint),
                     );
                     if ui.button(tr.mem_goto).clicked() {
                         let s = self.hex_addr_input.trim().trim_start_matches("0x");
@@ -61,10 +59,10 @@ impl GameGeneApp {
                             self.hex_addr = a & !0xF; // align to a 16-byte row
                         }
                     }
-                    if ui.small_button("- 256").clicked() {
+                    if ui.button("- 256").clicked() {
                         self.hex_addr = self.hex_addr.saturating_sub(256);
                     }
-                    if ui.small_button("+ 256").clicked() {
+                    if ui.button("+ 256").clicked() {
                         self.hex_addr = self.hex_addr.saturating_add(256);
                     }
                 });
@@ -134,7 +132,7 @@ impl GameGeneApp {
                                         }
                                     });
                                 let label = if more { tr.mem_less } else { tr.mem_more };
-                                if ui.small_button(label).clicked() {
+                                if ui.button(label).clicked() {
                                     self.hex_more = !more;
                                 }
                             }
@@ -151,17 +149,16 @@ impl GameGeneApp {
                                         }
                                     });
                                 ui.add(
-                                    egui::TextEdit::singleline(&mut self.hex_write_text)
-                                        .desired_width(110.0)
+                                    control_edit(&mut self.hex_write_text, 110.0)
                                         .hint_text(tr.set_hint),
                                 );
                                 if ui.button(tr.mem_write).clicked() {
                                     do_write = Some(sel);
                                 }
-                                if ui.small_button(tr.add_table).clicked() {
+                                if ui.button(tr.add_table).clicked() {
                                     add_addr = Some(sel);
                                 }
-                                if ui.small_button(tr.arr_dissect).clicked() {
+                                if ui.button(tr.arr_dissect).clicked() {
                                     dissect_from = Some(sel);
                                 }
                             });

@@ -212,8 +212,7 @@ impl GameGeneApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("0x");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.struct_base_input)
-                            .desired_width(120.0)
+                        control_edit(&mut self.struct_base_input, 120.0)
                             .hint_text(tr.mem_addr_hint),
                     );
                     if ui.button(tr.arr_detect).clicked() {
@@ -221,10 +220,7 @@ impl GameGeneApp {
                     }
                     ui.separator();
                     ui.label(tr.arr_stride);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.struct_stride_input)
-                            .desired_width(56.0),
-                    );
+                    ui.add(control_edit(&mut self.struct_stride_input, 56.0));
                     if ui.button(tr.arr_apply).clicked() {
                         apply = true;
                     }
@@ -274,16 +270,10 @@ impl GameGeneApp {
                                 } else {
                                     tr.fill_value
                                 });
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.fill_value)
-                                        .desired_width(90.0),
-                                );
+                                ui.add(control_edit(&mut self.fill_value, 90.0));
                                 if self.fill_increment {
                                     ui.label(tr.fill_step);
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut self.fill_step)
-                                            .desired_width(50.0),
-                                    );
+                                    ui.add(control_edit(&mut self.fill_step, 50.0));
                                 }
                                 ui.label(tr.fill_count);
                                 ui.add(
