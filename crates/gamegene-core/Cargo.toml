@@ -8,6 +8,8 @@ license.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# SIMD substring/byte search for the pattern (AOB / text) finder.
+memchr = "2"
 
 [lints.rust]
 unsafe_code = "forbid"

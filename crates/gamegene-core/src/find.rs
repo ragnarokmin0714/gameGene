@@ -66,12 +66,23 @@ fn matches_at(pattern: &Pattern, window: &[u8]) -> bool {
 /// Find up to `max_results` addresses where `pattern` occurs, scanning every
 /// readable region unaligned (step 1). Reads overlap by `pattern.len() - 1` so
 /// a match straddling a chunk boundary is not missed.
+///
+/// Rather than test the pattern at every byte, we anchor on the first
+/// *concrete* (non-wildcard) byte and use SIMD [`memchr`] to jump straight to
+/// its next occurrence, only running the full compare there. For real
+/// signatures — which almost always start with a concrete byte — this skips the
+/// vast majority of positions.
 pub fn find_pattern(source: &dyn MemorySource, pattern: &Pattern, max_results: usize) -> Vec<u64> {
     let plen = pattern.len();
     let mut hits = Vec::new();
     if plen == 0 || max_results == 0 {
         return hits;
     }
+    // Index and value of the first concrete byte to anchor the search on.
+    let anchor = pattern
+        .iter()
+        .position(|p| p.is_some())
+        .map(|i| (i, pattern[i].unwrap()));
     let mut buf = vec![0u8; SCAN_CHUNK_SIZE];
 
     for region in source.regions() {
@@ -90,11 +101,35 @@ pub fn find_pattern(source: &dyn MemorySource, pattern: &Pattern, max_results: u
                 offset += want.max(1) as u64;
                 continue;
             }
-            for i in 0..=got - plen {
-                if matches_at(pattern, &buf[i..i + plen]) {
-                    hits.push(read_addr + i as u64);
-                    if hits.len() >= max_results {
-                        return hits;
+            let window = &buf[..got];
+            let last_start = got - plen;
+            match anchor {
+                // Anchored: hop between occurrences of the anchor byte. A match
+                // starting at `i` has the anchor byte at `i + ai`, so candidate
+                // starts are `pos - ai`.
+                Some((ai, aval)) => {
+                    let mut from = ai; // earliest anchor position for start 0
+                    while let Some(rel) = memchr::memchr(aval, &window[from..]) {
+                        let pos = from + rel;
+                        if pos >= ai {
+                            let start = pos - ai;
+                            if start <= last_start && matches_at(pattern, &window[start..]) {
+                                hits.push(read_addr + start as u64);
+                                if hits.len() >= max_results {
+                                    return hits;
+                                }
+                            }
+                        }
+                        from = pos + 1;
+                    }
+                }
+                // All-wildcard pattern (matches everywhere): emit every start.
+                None => {
+                    for start in 0..=last_start {
+                        hits.push(read_addr + start as u64);
+                        if hits.len() >= max_results {
+                            return hits;
+                        }
                     }
                 }
             }
