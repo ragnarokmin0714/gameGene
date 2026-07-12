@@ -25,7 +25,7 @@ pub use find::{find_pattern, parse_aob, text_pattern, Pattern, TextEncoding};
 pub use group::group_scan;
 pub use pointer::{pointer_scan, PointerScanOptions};
 pub use process::{MemoryRegion, MemorySource, ModuleInfo};
-pub use scan::{Compare, Match, ScanSession};
+pub use scan::{Compare, Match, ScanControl, ScanSession};
 pub use structure::{detect_stride_in, dissect, Dissection, Field, StrideOptions};
 pub use table::{CheatTable, Locator, TableEntry};
 pub use value::{ScanValue, ValueType};

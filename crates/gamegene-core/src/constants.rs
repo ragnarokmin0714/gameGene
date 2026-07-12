@@ -31,6 +31,20 @@ pub const NEXT_SCAN_BLOCK: usize = 64 * 1024;
 /// initial value" scan cannot freeze the UI.
 pub const MAX_RESULTS_DISPLAY: usize = 5_000;
 
+/// Upper bound on candidates a known-value first scan will keep. A too-common
+/// value (scanning for `0` or `1` over a multi-GB game) can match hundreds of
+/// millions of slots; at ~24 bytes per candidate that is gigabytes of RAM. On
+/// hitting this the scan stops and reports truncation, prompting the user for a
+/// more specific value. "Unknown" scans are unaffected — they store bytes, not
+/// per-candidate structs.
+pub const MAX_SCAN_MATCHES: usize = 10_000_000;
+
+/// Size of one unit of parallel scan work. Regions are split into pieces no
+/// larger than this so the thread pool load-balances even across a few huge
+/// regions. A multiple of 8 (the widest value) so every piece boundary lands
+/// on an aligned slot, making parallel results identical to serial.
+pub const SCAN_WORK_ITEM: u64 = 16 * 1024 * 1024;
+
 /// How often (milliseconds) frozen table entries are re-written to memory.
 pub const FREEZE_INTERVAL_MS: u64 = 100;
 

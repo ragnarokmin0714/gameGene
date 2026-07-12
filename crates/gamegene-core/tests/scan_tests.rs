@@ -199,3 +199,71 @@ fn block_coalesced_next_scan_narrows_dense_candidates() {
         vec![BASE + 4, BASE + 40]
     );
 }
+
+#[test]
+fn parallel_scan_finds_matches_across_work_items() {
+    // Larger than one 16 MiB work item so the scan splits across threads and
+    // the merge/sort path is exercised; plant a rare value in several items.
+    let size = 40 * 1024 * 1024;
+    let mem = MockMemory::new(BASE, size);
+    let offsets = [0u64, 20_000_000, 33_000_000];
+    for off in offsets {
+        let aligned = off & !3; // keep it on an i32 slot boundary
+        mem.poke(BASE + aligned, &424_242i32.to_le_bytes());
+    }
+    let session = ScanSession::first_scan(
+        &mem,
+        ValueType::I32,
+        Compare::Exact(ScanValue::I32(424_242)),
+    )
+    .unwrap();
+    let mut addrs: Vec<u64> = session.matches().iter().map(|m| m.address).collect();
+    addrs.sort_unstable();
+    let mut want: Vec<u64> = offsets.iter().map(|o| BASE + (o & !3)).collect();
+    want.sort_unstable();
+    assert_eq!(
+        addrs, want,
+        "results must be complete and sorted after merge"
+    );
+    assert!(!session.truncated());
+}
+
+#[test]
+fn cancelled_scan_stops_early() {
+    use gamegene_core::scan::ScanControl;
+    let mem = MockMemory::new(BASE, 32 * 1024 * 1024);
+    let control = ScanControl::new();
+    control.request_cancel(); // cancel before it starts
+    let session = ScanSession::first_scan_with(
+        &mem,
+        ValueType::I32,
+        Compare::Exact(ScanValue::I32(0)),
+        &control,
+    )
+    .unwrap();
+    // Every i32 in a zeroed buffer equals 0, so an un-cancelled scan would
+    // return millions; cancelling first must yield far fewer (ideally none).
+    assert!(
+        session.len() < 1000,
+        "cancelled scan returned {} matches",
+        session.len()
+    );
+}
+
+#[test]
+fn native_compare_orders_large_integers_exactly() {
+    // Two i64 values just above 2^53, where the old f64 comparison path could
+    // not tell them apart. GreaterThan must select only the strictly-larger one.
+    let base = (1i64 << 53) + 1;
+    let mem = MockMemory::new(BASE, 32);
+    mem.poke(BASE, &base.to_le_bytes());
+    mem.poke(BASE + 8, &(base + 1).to_le_bytes());
+    let session = ScanSession::first_scan(
+        &mem,
+        ValueType::I64,
+        Compare::GreaterThan(ScanValue::I64(base)),
+    )
+    .unwrap();
+    let addrs: Vec<u64> = session.matches().iter().map(|m| m.address).collect();
+    assert_eq!(addrs, vec![BASE + 8]);
+}
