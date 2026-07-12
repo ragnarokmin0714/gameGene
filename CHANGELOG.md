@@ -7,6 +7,40 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.13.0]
+
+### Added
+- **Group scan with float ranges**: when the value type is Float/Double, each
+  entered value matches a `v…v+1` range — the way to find values a HUD shows
+  as "12" that are really 12.37 in memory, where an exact match can never hit.
+  The interpreted ranges preview live under the input as you type, and
+  "Next scan" narrows with ranges too.
+- **Offsets column in group results**: each hit now shows where every other
+  value sits relative to the anchor, with its live value (hover for full
+  numbers and absolute addresses). This is the struct layout at a glance —
+  previously the other matches were found but never shown, and Dissect (built
+  for repeating arrays, not a single struct) couldn't reveal them.
+- Group input ignores brackets and parentheses, so a pasted `[ 100 50 12 ]`
+  parses fine.
+- Headless layout test asserting toolbar controls share one height and
+  centreline, and grid rows centre labels against their cells.
+
+### Changed
+- One standard control height across the UI: text inputs now match button
+  height, and mixed small/full-size buttons in the same row were unified
+  (memory viewer address bar and inspector, process panel Detach). Small
+  buttons remain only inside dense grid rows and as heading chips.
+- Group-scan exact matches align to the value size (struct fields are
+  aligned), reducing false positives from overlapping byte patterns.
+- Windows attach asks for read-only access when full access is denied, so
+  protected processes can still be scanned; edits then fail with a clear
+  error, matching the Linux backend.
+
+### Fixed
+- Linux: module paths containing spaces (common under Proton, e.g.
+  `.../steamapps/common/Game Name/Game.exe`) now parse correctly from
+  `/proc/<pid>/maps`, so module-relative locators resolve for those games.
+
 ## [0.12.0]
 
 ### Fixed
