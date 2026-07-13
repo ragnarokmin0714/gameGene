@@ -7,6 +7,28 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.16.0]
+
+### Changed
+- Group scan now shows the **same determinate progress bar** as the value scan
+  — its total spans every value's sweep, so the bar fills 0→100% across the
+  whole scan. The rescan stays indeterminate (it only reads a small window
+  around each anchor).
+
+### Fixed
+- **Group scan with a repeated or decoy value is reliable now.** Rescan
+  re-searches around each anchor instead of trusting the single nearest partner
+  the first scan recorded, so a real group is no longer dropped when an
+  unrelated occurrence of a value happened to sit closer. Covers `[33 30] ->
+  [33 34]`, `[20 20] -> [21 20]`, and the decoy case, each with a test.
+- Value and group scans **auto-reset when a scan finds 0 matches**, so First
+  scan is usable again immediately without a manual Reset.
+- Traditional Chinese: the fill "Step" label reads 級距 (was 步進, which is
+  really only idiomatic in 步進馬達 / stepper motor).
+- CI: reworded a test doc comment whose line began with `+`, which clippy 1.97
+  (`doc_lazy_continuation`) parsed as a Markdown list item and rejected under
+  `-D warnings` — this had broken the 0.15.0 build.
+
 ## [0.15.0]
 
 ### Added
