@@ -7,6 +7,28 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.15.0]
+
+### Added
+- The array / structure view shows records on **both sides** of the base
+  address — the base is centred and highlighted (accent colour + tinted row),
+  so you can see the records before it, not only after.
+- Clicking an array cell now opens an **"Add to table?"** confirmation with an
+  editable name (Enter confirms), instead of adding to the table immediately.
+- **Group scan runs on a background thread** with a progress indicator and a
+  Cancel button, plus a **Reset** button; first scan locks after it runs (like
+  the value scan) until Reset, so an accidental click can't wipe results.
+
+### Fixed
+- **Group scan with a repeated value** (e.g. `[30 30]`) now pairs two *distinct*
+  nearby addresses instead of matching a single value with itself. HP and MP
+  both at 30 are found as a group; a lone 30 with no partner nearby no longer
+  produces a false hit.
+- Array / structure control-bar labels (`0x` / Stride / Rows) are vertically
+  centred; a bare label used to top-align against the taller inputs and
+  buttons, sitting noticeably high. The same fix is applied to the
+  memory-viewer bar and the new confirmation dialog.
+
 ## [0.14.0]
 
 ### Added
