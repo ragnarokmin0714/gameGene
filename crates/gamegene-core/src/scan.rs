@@ -305,10 +305,15 @@ fn work_items(source: &dyn MemorySource) -> Vec<(u64, u64)> {
 /// of type `R`. Honors `control` (progress + cancel) and stops at `cap` total
 /// results (setting `*truncated`). Merged results are in no particular order;
 /// callers that need ordering sort afterwards.
+///
+/// When `set_total` is true this sweep's byte count becomes the progress total;
+/// a group scan does several sweeps and sets one aggregate total itself, so it
+/// passes false to keep the bar advancing across all of them.
 fn parallel_collect<R, E>(
     source: &dyn MemorySource,
     control: &ScanControl,
     cap: usize,
+    set_total: bool,
     emit: E,
 ) -> (Vec<R>, bool)
 where
@@ -316,8 +321,9 @@ where
     E: Fn(&[u8], u64, &mut Vec<R>) + Sync,
 {
     let items = work_items(source);
-    let total: u64 = items.iter().map(|(_, len)| len).sum();
-    control.set_total(total);
+    if set_total {
+        control.set_total(items.iter().map(|(_, len)| len).sum());
+    }
 
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -500,7 +506,7 @@ impl ScanSession {
             (Results::Snapshot(snapshot_regions(source, control)), false)
         } else {
             let (mut matches, truncated) =
-                parallel_collect(source, control, MAX_SCAN_MATCHES, |buf, addr, out| {
+                parallel_collect(source, control, MAX_SCAN_MATCHES, true, |buf, addr, out| {
                     for_each_match(value_type, compare, buf, None, |i| {
                         out.push(Match {
                             address: addr + i as u64,
@@ -570,14 +576,17 @@ fn slot_count(len: usize, size: usize) -> usize {
 /// match millions of slots.
 /// Collect up to `cap` addresses of aligned slots matching `compare`, honoring
 /// a [`ScanControl`] (for a cancellable group scan on a background thread).
+/// `set_total` controls whether this sweep owns the progress total — false when
+/// a group scan aggregates the total across several sweeps.
 pub(crate) fn collect_addresses_with(
     source: &dyn MemorySource,
     vt: ValueType,
     compare: Compare,
     cap: usize,
     control: &ScanControl,
+    set_total: bool,
 ) -> Vec<u64> {
-    let (mut addrs, _) = parallel_collect(source, control, cap, |buf, addr, out| {
+    let (mut addrs, _) = parallel_collect(source, control, cap, set_total, |buf, addr, out| {
         for_each_match(vt, compare, buf, None, |i| out.push(addr + i as u64));
     });
     addrs.sort_unstable();

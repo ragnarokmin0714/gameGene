@@ -42,14 +42,18 @@ impl GroupQuery {
         }
     }
 
+    /// Whether the value at the front of `bytes` (`bytes.len() >= size`)
+    /// satisfies this query.
+    fn holds_bytes(&self, bytes: &[u8]) -> bool {
+        self.compare()
+            .eval(ScanValue::from_le_bytes(self.value_type(), bytes), None)
+    }
+
     /// Does memory at `addr` currently satisfy this query?
     fn holds_at(&self, src: &dyn MemorySource, addr: u64) -> bool {
         let size = self.value_type().size();
         let mut buf = [0u8; 8];
-        matches!(src.read(addr, &mut buf[..size]), Ok(n) if n == size)
-            && self
-                .compare()
-                .eval(ScanValue::from_le_bytes(self.value_type(), &buf), None)
+        matches!(src.read(addr, &mut buf[..size]), Ok(n) if n == size) && self.holds_bytes(&buf)
     }
 }
 
@@ -80,8 +84,8 @@ pub fn group_scan(
 }
 
 /// [`group_scan`] honoring a [`ScanControl`], so it can run on a background
-/// thread and be cancelled. Progress is per-value (each value is a full sweep),
-/// so the UI shows an indeterminate bar rather than a fraction.
+/// thread and be cancelled. Each value is a full memory sweep, so the progress
+/// total is set to `values × bytes` up front and the bar fills across them all.
 pub fn group_scan_with(
     src: &dyn MemorySource,
     queries: &[GroupQuery],
@@ -93,13 +97,23 @@ pub fn group_scan_with(
         return Vec::new();
     }
 
+    // One aggregate progress total across every value's sweep.
+    let bytes: u64 = src.regions().iter().map(|r| r.size).sum();
+    control.set_total(bytes * queries.len() as u64);
+
     let mut lists: Vec<Vec<u64>> = Vec::with_capacity(queries.len());
     for q in queries {
         if control.is_cancelled() {
             return Vec::new();
         }
-        let mut hits =
-            collect_addresses_with(src, q.value_type(), q.compare(), PER_VALUE_CAP, control);
+        let mut hits = collect_addresses_with(
+            src,
+            q.value_type(),
+            q.compare(),
+            PER_VALUE_CAP,
+            control,
+            false, // group owns the aggregate total set above
+        );
         hits.sort_unstable();
         lists.push(hits);
     }
@@ -134,26 +148,81 @@ pub fn group_scan_with(
 }
 
 /// Narrow previous hits with a fresh set of queries ("next group scan"): a hit
-/// survives only if its anchor now satisfies `queries[0]` and each recorded
-/// address satisfies its corresponding query. `queries` must pair up with the
-/// original scan (same count, same order); hits from a different shape are
-/// dropped.
+/// survives only if its anchor now satisfies `queries[0]` and every other query
+/// can still be found within `span` bytes of the anchor.
+///
+/// Crucially, this **re-searches** around each anchor rather than re-checking
+/// the specific partner addresses the first scan recorded. The first scan only
+/// remembers each value's *nearest* occurrence, which may be an unrelated decoy
+/// sitting closer than the real field — checking that fixed address would drop
+/// the real group even though the new value is right there. Re-searching keeps a
+/// hit as long as the values are still grouped near the anchor, and refreshes
+/// `others` to where they now sit. `queries` must pair up with the original scan
+/// (same count, same order); hits from a different shape are dropped.
 pub fn group_rescan(
     src: &dyn MemorySource,
     hits: &[GroupHit],
     queries: &[GroupQuery],
+    span: u64,
 ) -> Vec<GroupHit> {
     let Some((first, rest)) = queries.split_first() else {
         return Vec::new();
     };
     hits.iter()
-        .filter(|h| {
-            h.others.len() == rest.len()
-                && first.holds_at(src, h.anchor)
-                && h.others.iter().zip(rest).all(|(&a, q)| q.holds_at(src, a))
+        .filter_map(|h| {
+            if h.others.len() != rest.len() || !first.holds_at(src, h.anchor) {
+                return None;
+            }
+            // Re-find each other value near the anchor, on distinct addresses.
+            let mut claimed = vec![h.anchor];
+            let mut others = Vec::with_capacity(rest.len());
+            for q in rest {
+                let found = find_near(src, h.anchor, span, q, &claimed)?;
+                claimed.push(found);
+                others.push(found);
+            }
+            Some(GroupHit {
+                anchor: h.anchor,
+                others,
+            })
         })
-        .cloned()
         .collect()
+}
+
+/// Nearest address within `span` of `anchor` holding `q`, size-aligned and not
+/// already `claimed`. Re-read fresh each rescan, so a hit survives as long as
+/// the value is *somewhere* near the anchor — not tied to whichever occurrence
+/// the first scan happened to record.
+fn find_near(
+    src: &dyn MemorySource,
+    anchor: u64,
+    span: u64,
+    q: &GroupQuery,
+    claimed: &[u64],
+) -> Option<u64> {
+    let size = q.value_type().size() as u64;
+    // Window [anchor-span, anchor+span], aligned down to the value size so every
+    // stepped address is size-aligned (game struct fields are).
+    let start = anchor.saturating_sub(span) & !(size - 1);
+    let mut buf = vec![0u8; (span * 2 + size) as usize];
+    let got = src.read(start, &mut buf).unwrap_or(0);
+    let buf = &buf[..got];
+
+    let sz = size as usize;
+    let mut best: Option<u64> = None;
+    let mut off = 0usize;
+    while off + sz <= buf.len() {
+        let addr = start + off as u64;
+        if addr.abs_diff(anchor) <= span
+            && !claimed.contains(&addr)
+            && q.holds_bytes(&buf[off..off + sz])
+            && best.is_none_or(|b| addr.abs_diff(anchor) < b.abs_diff(anchor))
+        {
+            best = Some(addr);
+        }
+        off += sz;
+    }
+    best
 }
 
 /// The element of `sorted` within `span` of `center` that lies closest to it,
@@ -257,7 +326,7 @@ mod tests {
         mem.poke(base + 0x604, &35i32.to_le_bytes());
 
         let after = [exact(27), exact(35)];
-        let narrowed = group_rescan(&mem, &hits, &after);
+        let narrowed = group_rescan(&mem, &hits, &after, 64);
         assert_eq!(anchors(&narrowed), vec![base + 0x600]);
         assert_eq!(narrowed[0].others, vec![base + 0x604]);
     }
@@ -280,10 +349,10 @@ mod tests {
 
         // Rescan after the values drifted within new ranges: HP fell to 11.x.
         mem.poke(base + 0x200, &11.9f32.to_le_bytes());
-        let narrowed = group_rescan(&mem, &hits, &[about(11.0), about(20.0), about(6.0)]);
+        let narrowed = group_rescan(&mem, &hits, &[about(11.0), about(20.0), about(6.0)], 64);
         assert_eq!(anchors(&narrowed), vec![base + 0x200]);
         // A range the value left no longer matches.
-        assert!(group_rescan(&mem, &hits, &[about(30.0), about(20.0), about(6.0)]).is_empty());
+        assert!(group_rescan(&mem, &hits, &[about(30.0), about(20.0), about(6.0)], 64).is_empty());
     }
 
     #[test]
@@ -306,8 +375,41 @@ mod tests {
         // Change both to 33 in game; rescan with [33 33] keeps the pair.
         mem.poke(base + 0x100, &33i32.to_le_bytes());
         mem.poke(base + 0x108, &33i32.to_le_bytes());
-        let narrowed = group_rescan(&mem, &hits, &[exact(33), exact(33)]);
+        let narrowed = group_rescan(&mem, &hits, &[exact(33), exact(33)], 64);
         assert_eq!(anchors(&narrowed), vec![base + 0x100, base + 0x108]);
+    }
+
+    #[test]
+    fn mixed_values_survive_when_one_field_changes() {
+        // Reported case [33 30] -> [33 34]: field A stays 33, field B 30 -> 34.
+        let base = 0x90_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        mem.poke(base + 0x200, &33i32.to_le_bytes()); // A (anchor value)
+        mem.poke(base + 0x204, &30i32.to_le_bytes()); // B
+        let hits = group_scan(&mem, &[exact(33), exact(30)], 64, 100);
+        assert_eq!(anchors(&hits), vec![base + 0x200]);
+
+        mem.poke(base + 0x204, &34i32.to_le_bytes()); // B: 30 -> 34
+        let narrowed = group_rescan(&mem, &hits, &[exact(33), exact(34)], 64);
+        assert_eq!(anchors(&narrowed), vec![base + 0x200]);
+        assert_eq!(narrowed[0].others, vec![base + 0x204]);
+    }
+
+    #[test]
+    fn duplicate_then_one_changes() {
+        // Reported case [20 20] -> [21 20]: two equal fields, one edited.
+        let base = 0xA0_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        mem.poke(base + 0x300, &20i32.to_le_bytes()); // X
+        mem.poke(base + 0x304, &20i32.to_le_bytes()); // Y
+        let hits = group_scan(&mem, &[exact(20), exact(20)], 64, 100);
+        assert_eq!(anchors(&hits), vec![base + 0x300, base + 0x304]);
+
+        mem.poke(base + 0x300, &21i32.to_le_bytes()); // X: 20 -> 21
+                                                      // Only the field that became 21 anchors a surviving [21 20] group.
+        let narrowed = group_rescan(&mem, &hits, &[exact(21), exact(20)], 64);
+        assert_eq!(anchors(&narrowed), vec![base + 0x300]);
+        assert_eq!(narrowed[0].others, vec![base + 0x304]);
     }
 
     #[test]
@@ -321,6 +423,28 @@ mod tests {
         assert_eq!(hits.len(), 1);
         // Rescanning with three values can't pair up with a two-value hit.
         let three = [exact(5), exact(6), exact(7)];
-        assert!(group_rescan(&mem, &hits, &three).is_empty());
+        assert!(group_rescan(&mem, &hits, &three, 64).is_empty());
+    }
+    #[test]
+    fn repro_decoy_partner_intermittent() {
+        // anchor 33, a REAL partner 30 that will become 34, and a DECOY 30
+        // sitting nearer the anchor. First scan records the nearest (decoy);
+        // rescan then drops the real group even though a 34 IS within span.
+        let base = 0x80_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        mem.poke(base + 0x100, &33i32.to_le_bytes()); // anchor
+        mem.poke(base + 0x108, &30i32.to_le_bytes()); // decoy 30 (nearer)
+        mem.poke(base + 0x140, &30i32.to_le_bytes()); // real partner
+        let hits = group_scan(&mem, &[exact(33), exact(30)], 0x100, 100);
+        assert_eq!(anchors(&hits), vec![base + 0x100]);
+
+        // The real partner changes to 34; decoy stays 30.
+        mem.poke(base + 0x140, &34i32.to_le_bytes());
+        let narrowed = group_rescan(&mem, &hits, &[exact(33), exact(34)], 0x100);
+        assert_eq!(
+            anchors(&narrowed),
+            vec![base + 0x100],
+            "anchor has a 34 within span; the group should survive"
+        );
     }
 }
