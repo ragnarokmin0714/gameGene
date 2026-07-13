@@ -5,7 +5,7 @@ use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
-use gamegene_core::group::{group_rescan, group_scan, GroupHit, GroupQuery};
+use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, interpret};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
@@ -31,7 +31,7 @@ mod scan;
 mod scan_job;
 mod table;
 
-use scan_job::{JobDone, JobKind, ScanJob};
+use scan_job::{GroupDone, GroupJob, JobDone, JobKind, ScanJob};
 
 /// User-facing scan predicate choices.
 #[derive(Clone, Copy, PartialEq)]
@@ -180,6 +180,16 @@ pub struct GameGeneApp {
     group_query: String,
     group_span: u64,
     group_results: Vec<GroupHit>,
+    /// A running group scan, if any (background thread, like `scan_job`).
+    group_job: Option<GroupJob>,
+    /// Whether a first group scan has run — locks first scan until Reset, so an
+    /// accidental click can't wipe narrowed group results (mirrors value scan).
+    group_scanned: bool,
+
+    // A cell click in the array view stages an add here; a confirmation window
+    // (with an editable label) turns it into a table entry.
+    pending_add: Option<(u64, ValueType)>,
+    pending_add_label: String,
 
     // Memory viewer
     show_hex: bool,
@@ -266,6 +276,10 @@ impl GameGeneApp {
             group_query: String::new(),
             group_span: 512,
             group_results: Vec::new(),
+            group_job: None,
+            group_scanned: false,
+            pending_add: None,
+            pending_add_label: String::new(),
             show_hex: false,
             hex_addr: 0,
             hex_addr_input: String::new(),
@@ -348,6 +362,7 @@ impl eframe::App for GameGeneApp {
         // Pick up a finished background scan (installs results or clears on
         // cancel). Kept before drawing so this frame shows the outcome.
         self.poll_scan_job();
+        self.poll_group_job();
 
         self.handle_shortcuts(ctx);
 
@@ -357,6 +372,7 @@ impl eframe::App for GameGeneApp {
         self.scan_panel(ctx);
         self.hex_window(ctx);
         self.struct_window(ctx);
+        self.confirm_add_window(ctx);
         self.settings_window(ctx);
     }
 
@@ -394,6 +410,20 @@ fn control_edit(text: &mut String, width: f32) -> egui::TextEdit<'_> {
         .desired_width(width)
         .vertical_align(egui::Align::Center)
         .min_size(egui::vec2(0.0, theme::CONTROL_HEIGHT))
+}
+
+/// A label vertically centred to the control height. A bare `ui.label` in a row
+/// of taller widgets (inputs, buttons) top-aligns — it shares the row's top,
+/// not its centreline — so the text sits noticeably high. Sizing the label to
+/// the control height and letting `add_sized` centre it fixes the alignment.
+fn bar_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let w = ui.fonts(|f| {
+        f.layout_no_wrap(text.to_owned(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    ui.add_sized([w, theme::CONTROL_HEIGHT], egui::Label::new(text))
 }
 
 /// Format a duration as `HH:MM:SS` for the running-time display.

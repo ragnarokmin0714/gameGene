@@ -210,7 +210,7 @@ impl GameGeneApp {
                 // wraps at narrow widths so it can never poke past the frame.
                 ui.add_space(2.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("0x");
+                    bar_label(ui, "0x");
                     ui.add(
                         control_edit(&mut self.struct_base_input, 120.0)
                             .hint_text(tr.mem_addr_hint),
@@ -219,13 +219,14 @@ impl GameGeneApp {
                         detect = true;
                     }
                     ui.separator();
-                    ui.label(tr.arr_stride);
+                    bar_label(ui, tr.arr_stride);
                     ui.add(control_edit(&mut self.struct_stride_input, 56.0));
                     if ui.button(tr.arr_apply).clicked() {
                         apply = true;
                     }
-                    ui.label(tr.arr_rows);
-                    ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=256));
+                    bar_label(ui, tr.arr_rows);
+                    ui.add(egui::DragValue::new(&mut self.struct_rows).range(1..=128))
+                        .on_hover_text(tr.arr_rows_hint);
                 });
                 ui.label(RichText::new(tr.arr_hint).weak());
                 ui.separator();
@@ -329,40 +330,81 @@ impl GameGeneApp {
                                     });
                             }
                         });
-                        egui::Grid::new("arr_grid").striped(true).show(ui, |ui| {
-                            ui.strong(tr.arr_addr);
-                            for f in &self.struct_fields {
-                                ui.strong(format!("+{:X} {}", f.offset, f.ty.label()));
-                            }
-                            ui.end_row();
-
-                            let h = ui.spacing().interact_size.y;
-                            for r in 0..self.struct_rows {
-                                let row_addr = self.struct_base + r as u64 * stride;
-                                ui.monospace(format!("{row_addr:012X}"));
+                        // Show `rows` records on each side of the base address,
+                        // base centred, so context before it is visible too. The
+                        // base row is highlighted; header is grid row 0, so the
+                        // base sits at grid row 1 + rows.
+                        let back = self.struct_rows;
+                        let anchor_row = 1 + back;
+                        let highlight = ui.visuals().selection.bg_fill;
+                        let faint = ui.visuals().faint_bg_color;
+                        let accent = ui.visuals().hyperlink_color;
+                        egui::Grid::new("arr_grid")
+                            .with_row_color(move |row, _style| {
+                                if row == anchor_row {
+                                    Some(highlight)
+                                } else if row % 2 == 1 {
+                                    Some(faint) // manual striping (row color replaces it)
+                                } else {
+                                    None
+                                }
+                            })
+                            .show(ui, |ui| {
+                                ui.strong(tr.arr_addr);
                                 for f in &self.struct_fields {
-                                    let addr = row_addr + f.offset as u64;
-                                    let full = src
-                                        .and_then(|s| read_value(s, addr, f.ty))
-                                        .map(|v| v.display())
-                                        .unwrap_or_else(|| "—".into());
-                                    // Truncate long values (e.g. floats with
-                                    // many decimals) so a cell can't widen the
-                                    // grid; the full value shows on hover.
-                                    let shown = short_value(&full, 10);
-                                    let resp =
-                                        ui.add_sized([92.0, h], egui::Button::new(shown).small());
-                                    if resp.clicked() {
-                                        add = Some((addr, f.ty));
-                                    }
-                                    resp.on_hover_text(format!(
-                                        "{addr:#014X}\n{full} — {}",
-                                        tr.arr_cell_hint
-                                    ));
+                                    ui.strong(format!("+{:X} {}", f.offset, f.ty.label()));
                                 }
                                 ui.end_row();
-                            }
-                        });
+
+                                let h = ui.spacing().interact_size.y;
+                                for r in -(back as i64)..=(back as i64) {
+                                    let row_addr = if r >= 0 {
+                                        self.struct_base.checked_add(r as u64 * stride)
+                                    } else {
+                                        self.struct_base.checked_sub((-r) as u64 * stride)
+                                    };
+                                    let Some(row_addr) = row_addr else {
+                                        // Base is near the bottom of the address
+                                        // space; keep the grid rectangular.
+                                        ui.monospace("—");
+                                        for _ in &self.struct_fields {
+                                            ui.label("");
+                                        }
+                                        ui.end_row();
+                                        continue;
+                                    };
+                                    let is_anchor = r == 0;
+                                    let addr_text = format!("{row_addr:012X}");
+                                    if is_anchor {
+                                        ui.monospace(
+                                            RichText::new(addr_text).color(accent).strong(),
+                                        );
+                                    } else {
+                                        ui.monospace(addr_text);
+                                    }
+                                    for f in &self.struct_fields {
+                                        let addr = row_addr + f.offset as u64;
+                                        let full = src
+                                            .and_then(|s| read_value(s, addr, f.ty))
+                                            .map(|v| v.display())
+                                            .unwrap_or_else(|| "—".into());
+                                        // Truncate long values (e.g. floats with
+                                        // many decimals) so a cell can't widen the
+                                        // grid; the full value shows on hover.
+                                        let shown = short_value(&full, 10);
+                                        let resp = ui
+                                            .add_sized([92.0, h], egui::Button::new(shown).small());
+                                        if resp.clicked() {
+                                            add = Some((addr, f.ty));
+                                        }
+                                        resp.on_hover_text(format!(
+                                            "{addr:#014X}\n{full} — {}",
+                                            tr.arr_cell_hint
+                                        ));
+                                    }
+                                    ui.end_row();
+                                }
+                            });
                     });
             });
 
@@ -373,7 +415,10 @@ impl GameGeneApp {
             self.struct_apply_stride();
         }
         if let Some((addr, ty)) = add {
-            self.add_to_table(addr, ty);
+            // Don't add straight to the table — a cell click is easy to trigger
+            // by accident. Open a confirmation with an editable label instead.
+            self.pending_add = Some((addr, ty));
+            self.pending_add_label = format!("Value {}", self.entry_counter + 1);
         }
         if want_preview {
             self.fill_preview();

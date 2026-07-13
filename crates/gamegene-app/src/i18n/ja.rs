@@ -63,6 +63,10 @@ pub(super) static JA: Tr = Tr {
     scanning: "スキャン中…",
     narrowing: "絞り込み中…",
     cancel_scan: "キャンセル",
+    add_confirm_title: "テーブルに追加?",
+    add_confirm_label: "名前",
+    add_confirm_ok: "追加",
+    arr_rows_hint: "基準アドレスの前後にそれぞれ表示する件数(基準を中央に)。",
 
     tab_value: "値スキャン",
     tab_group: "グループスキャン",

@@ -94,6 +94,10 @@ pub struct Tr {
     pub scanning: &'static str,
     pub narrowing: &'static str,
     pub cancel_scan: &'static str,
+    pub add_confirm_title: &'static str,
+    pub add_confirm_label: &'static str,
+    pub add_confirm_ok: &'static str,
+    pub arr_rows_hint: &'static str,
 
     pub tab_value: &'static str,
     pub tab_group: &'static str,

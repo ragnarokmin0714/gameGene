@@ -5,13 +5,30 @@ use super::*;
 impl GameGeneApp {
     pub(super) fn add_to_table(&mut self, address: u64, value_type: ValueType) {
         self.entry_counter += 1;
+        let label = format!("Value {}", self.entry_counter);
+        self.add_to_table_labeled(address, value_type, label);
+    }
+
+    /// Add an entry under a specific label (used by the array-cell confirmation).
+    pub(super) fn add_to_table_labeled(
+        &mut self,
+        address: u64,
+        value_type: ValueType,
+        label: String,
+    ) {
         let desired = self
             .source
             .as_deref()
             .and_then(|s| read_value(s, address, value_type));
+        let label = if label.trim().is_empty() {
+            self.entry_counter += 1;
+            format!("Value {}", self.entry_counter)
+        } else {
+            label
+        };
         self.table.add(TableEntry {
             id: 0,
-            label: format!("Value {}", self.entry_counter),
+            label,
             value_type,
             locator: Locator::Absolute(address),
             desired,
@@ -19,6 +36,59 @@ impl GameGeneApp {
             notes: String::new(),
         });
         self.status = format!("Added {address:#x} to the table");
+    }
+
+    /// The array cell-add confirmation. Shown when a cell was clicked; lets the
+    /// user name the entry (or cancel) before it lands in the table.
+    pub(super) fn confirm_add_window(&mut self, ctx: &egui::Context) {
+        let Some((addr, ty)) = self.pending_add else {
+            return;
+        };
+        let tr = self.tr();
+        let value = self
+            .source
+            .as_deref()
+            .and_then(|s| read_value(s, addr, ty))
+            .map(|v| v.display())
+            .unwrap_or_else(|| "—".into());
+
+        let mut open = true;
+        let mut do_add = false;
+        let mut cancel = false;
+        egui::Window::new(tr.add_confirm_title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.monospace(format!("{addr:#014X}  {}  = {value}", ty.label()));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    bar_label(ui, tr.add_confirm_label);
+                    let resp = ui.add(control_edit(&mut self.pending_add_label, 180.0));
+                    // Enter in the name field confirms.
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        do_add = true;
+                    }
+                });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.add_confirm_ok).clicked() {
+                        do_add = true;
+                    }
+                    if ui.button(tr.cancel_scan).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+
+        if do_add {
+            let label = self.pending_add_label.clone();
+            self.add_to_table_labeled(addr, ty, label);
+            self.pending_add = None;
+        } else if cancel || !open {
+            self.pending_add = None;
+        }
     }
 
     pub(super) fn table_panel(&mut self, ctx: &egui::Context) {

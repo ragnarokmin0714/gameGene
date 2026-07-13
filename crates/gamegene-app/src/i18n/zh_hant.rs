@@ -63,6 +63,10 @@ pub(super) static ZH: Tr = Tr {
     scanning: "掃描中…",
     narrowing: "縮小中…",
     cancel_scan: "取消",
+    add_confirm_title: "加入表格?",
+    add_confirm_label: "名稱",
+    add_confirm_ok: "加入",
+    arr_rows_hint: "基準位址前後各顯示幾筆(基準置中)。",
 
     tab_value: "單值掃描",
     tab_group: "群組掃描",

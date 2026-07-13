@@ -310,3 +310,82 @@ fn window_stays_inside_viewport_and_frame() {
         );
     }
 }
+
+/// Measure the Array/structure control bar (label + input + button + separator
+/// + label + input + button + label + DragValue) — the row 0.14.0 feedback
+/// reported as not vertically centred. Prints each widget's centre-y and
+/// asserts they share one centreline.
+#[test]
+fn array_control_bar_shares_a_centreline() {
+    let ctx = egui::Context::default();
+    install_serif(&ctx);
+    install_control_spacing(&ctx);
+
+    let mut rects: Vec<(&'static str, egui::Rect)> = Vec::new();
+    let raw = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1280.0, 800.0),
+        )),
+        ..Default::default()
+    };
+    let _ = ctx.run(raw, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                rects.push(("0x", bar_label_probe(ui, "0x")));
+                let mut base = String::from("00400000");
+                let e = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut base)
+                            .desired_width(120.0)
+                            .vertical_align(egui::Align::Center)
+                            .min_size(egui::vec2(0.0, CONTROL_HEIGHT)),
+                    )
+                    .rect;
+                rects.push(("base", e.expand2(egui::vec2(4.0, 2.0))));
+                rects.push(("detect", ui.button("Detect").rect));
+                ui.separator();
+                rects.push(("stride_lbl", bar_label_probe(ui, "Stride")));
+                let mut st = String::from("32");
+                let e2 = ui
+                    .add(
+                        egui::TextEdit::singleline(&mut st)
+                            .desired_width(56.0)
+                            .vertical_align(egui::Align::Center)
+                            .min_size(egui::vec2(0.0, CONTROL_HEIGHT)),
+                    )
+                    .rect;
+                rects.push(("stride", e2.expand2(egui::vec2(4.0, 2.0))));
+                rects.push(("apply", ui.button("Apply").rect));
+                rects.push(("rows_lbl", bar_label_probe(ui, "Rows")));
+                let mut rows = 16usize;
+                rects.push(("rows", ui.add(egui::DragValue::new(&mut rows)).rect));
+            });
+        });
+    });
+
+    for (name, r) in &rects {
+        println!("{name:<12} cy={:6.2} h={:5.2}", r.center().y, r.height());
+    }
+    let cy0 = rects[0].1.center().y;
+    for (name, r) in &rects {
+        assert!(
+            (r.center().y - cy0).abs() <= 1.0,
+            "{name} off the centreline: cy={} vs {cy0}",
+            r.center().y
+        );
+    }
+}
+
+/// Candidate fix for `bar_label`: a label centred vertically within the control
+/// height so it lines up with inputs/buttons in a mixed-height row.
+fn bar_label_probe(ui: &mut egui::Ui, text: &str) -> egui::Rect {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let w = ui.fonts(|f| {
+        f.layout_no_wrap(text.to_owned(), font, egui::Color32::WHITE)
+            .size()
+            .x
+    });
+    ui.add_sized([w, CONTROL_HEIGHT], egui::Label::new(text))
+        .rect
+}

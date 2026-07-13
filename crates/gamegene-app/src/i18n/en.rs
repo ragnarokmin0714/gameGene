@@ -63,6 +63,10 @@ pub(super) static EN: Tr = Tr {
     scanning: "Scanning…",
     narrowing: "Narrowing…",
     cancel_scan: "Cancel",
+    add_confirm_title: "Add to table?",
+    add_confirm_label: "Name",
+    add_confirm_ok: "Add",
+    arr_rows_hint: "Records shown on each side of the base address (base centred).",
 
     tab_value: "Value scan",
     tab_group: "Group scan",

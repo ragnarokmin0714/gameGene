@@ -194,40 +194,84 @@ impl GameGeneApp {
         Some(queries)
     }
 
-    /// and find where they all occur within `group_span` bytes of each other.
+    /// Spawn a first group scan on a background thread — find where the values
+    /// all occur within `group_span` bytes of each other.
     fn do_group_scan(&mut self) {
+        if self.group_job.is_some() || self.group_scanned {
+            return;
+        }
         let Some(values) = self.parse_group_values() else {
             return;
         };
-        let Some(src) = self.source.as_deref() else {
+        let Some(src) = self.source.clone() else {
             self.status = "Attach to a process first.".into();
             return;
         };
-        self.group_results = group_scan(
+        self.status = "Scanning…".into();
+        self.group_job = Some(GroupJob::first(
             src,
-            &values,
+            values,
             self.group_span,
             gamegene_core::constants::MAX_RESULTS_DISPLAY,
-        );
-        self.status = format!("Group scan: {} match(es)", self.group_results.len());
+        ));
     }
 
     /// Narrow the previous group-scan hits with the values as they are *now*
     /// (change them in game first, then type the new numbers and rescan).
     fn do_group_rescan(&mut self) {
+        if self.group_job.is_some() {
+            return;
+        }
         let Some(values) = self.parse_group_values() else {
             return;
         };
-        let Some(src) = self.source.as_deref() else {
+        let Some(src) = self.source.clone() else {
             self.status = "Attach to a process first.".into();
             return;
         };
-        let before = self.group_results.len();
-        self.group_results = group_rescan(src, &self.group_results, &values);
-        self.status = format!(
-            "Group rescan: {} of {before} match(es) left",
-            self.group_results.len()
-        );
+        self.status = "Narrowing…".into();
+        self.group_job = Some(GroupJob::next(
+            src,
+            std::mem::take(&mut self.group_results),
+            values,
+        ));
+    }
+
+    /// Reset the group scan: drop results and re-enable first scan.
+    fn reset_group_scan(&mut self) {
+        self.group_results.clear();
+        self.group_scanned = false;
+        self.status = "Group scan reset".into();
+    }
+
+    /// Poll a running group scan; install results (or discard on cancel).
+    pub(super) fn poll_group_job(&mut self) {
+        let Some(job) = self.group_job.as_mut() else {
+            return;
+        };
+        let cancelling = job.is_cancelling();
+        let Some(done) = job.poll() else {
+            return;
+        };
+        self.group_job = None;
+        if cancelling {
+            self.status = "Scan cancelled".into();
+            // A cancelled first scan leaves nothing scanned; a cancelled rescan
+            // consumed the old results, so either way there is nothing to keep.
+            self.group_scanned = !self.group_results.is_empty();
+            return;
+        }
+        match done {
+            GroupDone::First(hits) => {
+                self.group_results = hits;
+                self.group_scanned = true;
+                self.status = format!("Group scan: {} match(es)", self.group_results.len());
+            }
+            GroupDone::Next(hits) => {
+                self.group_results = hits;
+                self.status = format!("Group rescan: {} match(es) left", self.group_results.len());
+            }
+        }
     }
 
     pub(super) fn scan_panel(&mut self, ctx: &egui::Context) {
@@ -425,25 +469,55 @@ impl GameGeneApp {
         ui.label(RichText::new(tr.group_hint).weak());
         let mut do_group = false;
         let mut do_rescan = false;
+        let mut do_reset = false;
         ui.horizontal(|ui| {
             ui.add(control_edit(&mut self.group_query, 200.0).hint_text(tr.group_values_hint));
-            ui.label(tr.group_span);
+            bar_label(ui, tr.group_span);
             ui.add(egui::DragValue::new(&mut self.group_span).range(4..=65536));
-            if ui.button(tr.first_scan).clicked() {
-                do_group = true;
-            }
-            // Narrow the hits after changing the values in game — the group
-            // counterpart of the single-value "next scan".
-            if ui
-                .add_enabled(
-                    !self.group_results.is_empty(),
-                    egui::Button::new(tr.next_scan),
-                )
-                .clicked()
-            {
-                do_rescan = true;
-            }
         });
+        // While a group scan runs on the worker thread, show an (indeterminate)
+        // progress bar + Cancel; group scan sweeps once per value, so there is
+        // no single fraction to report.
+        if let Some(job) = self.group_job.as_mut() {
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::ProgressBar::new(0.0)
+                        .desired_width(220.0)
+                        .text(tr.scanning)
+                        .animate(true),
+                );
+                ui.add_enabled_ui(!job.is_cancelling(), |ui| {
+                    if ui.button(tr.cancel_scan).clicked() {
+                        job.request_cancel();
+                    }
+                });
+            });
+            ui.ctx().request_repaint();
+        } else {
+            ui.horizontal(|ui| {
+                // First scan locks after it runs (like value scan) so an
+                // accidental click can't wipe narrowed results — Reset unlocks it.
+                ui.add_enabled_ui(!self.group_scanned, |ui| {
+                    if ui.button(tr.first_scan).clicked() {
+                        do_group = true;
+                    }
+                });
+                ui.add_enabled_ui(self.group_scanned && !self.group_results.is_empty(), |ui| {
+                    if ui.button(tr.next_scan).clicked() {
+                        do_rescan = true;
+                    }
+                });
+                if ui.button(tr.reset).clicked() {
+                    do_reset = true;
+                }
+                if self.group_scanned {
+                    ui.label(
+                        RichText::new(format!("{} {}", self.group_results.len(), tr.matches))
+                            .weak(),
+                    );
+                }
+            });
+        }
         // Live interpretation of the query: floats become v…v+1 ranges, so
         // typing `12` immediately shows the `12…13` that will be searched.
         if let Ok(qs) = parse_group_query(self.value_type, &self.group_query) {
@@ -459,6 +533,9 @@ impl GameGeneApp {
         }
         if do_rescan {
             self.do_group_rescan();
+        }
+        if do_reset {
+            self.reset_group_scan();
         }
 
         ui.separator();
