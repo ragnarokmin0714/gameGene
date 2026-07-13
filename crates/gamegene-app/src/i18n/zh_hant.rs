@@ -104,7 +104,7 @@ pub(super) static ZH: Tr = Tr {
     fill_increment: "遞增",
     fill_value: "數值",
     fill_start: "起始",
-    fill_step: "步進",
+    fill_step: "級距",
     fill_count: "筆數",
     fill_count_hint: "筆數 0 = 使用上方列數。套用前請先預覽;可用「還原」復原原值。",
     fill_preview_btn: "預覽",

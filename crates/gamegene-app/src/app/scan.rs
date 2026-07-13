@@ -121,6 +121,11 @@ impl GameGeneApp {
                     return;
                 }
                 match result {
+                    // No matches: nothing to narrow, so auto-reset (leave the
+                    // session empty) — the next First scan is immediately usable.
+                    Ok(s) if s.is_empty() && !s.truncated() => {
+                        self.status = "First scan: 0 matches — reset".into();
+                    }
                     Ok(s) => {
                         self.status = if s.truncated() {
                             format!(
@@ -144,10 +149,20 @@ impl GameGeneApp {
                     return;
                 }
                 match result {
-                    Ok(()) => self.status = format!("Narrowed to {} matches", session.len()),
-                    Err(e) => self.status = e.to_string(),
+                    // Narrowed to nothing: auto-reset instead of leaving a dead,
+                    // empty candidate set that can only be Reset by hand.
+                    Ok(()) if session.is_empty() => {
+                        self.status = "Narrowed to 0 matches — reset".into();
+                    }
+                    Ok(()) => {
+                        self.status = format!("Narrowed to {} matches", session.len());
+                        self.session = Some(session);
+                    }
+                    Err(e) => {
+                        self.status = e.to_string();
+                        self.session = Some(session);
+                    }
                 }
-                self.session = Some(session);
             }
         }
     }
@@ -234,6 +249,7 @@ impl GameGeneApp {
             src,
             std::mem::take(&mut self.group_results),
             values,
+            self.group_span,
         ));
     }
 
@@ -264,12 +280,24 @@ impl GameGeneApp {
         match done {
             GroupDone::First(hits) => {
                 self.group_results = hits;
-                self.group_scanned = true;
-                self.status = format!("Group scan: {} match(es)", self.group_results.len());
+                // No matches: auto-reset (stay unlocked) so First scan is
+                // immediately usable again, like the value scan.
+                self.group_scanned = !self.group_results.is_empty();
+                self.status = if self.group_results.is_empty() {
+                    "Group scan: 0 match(es) — reset".into()
+                } else {
+                    format!("Group scan: {} match(es)", self.group_results.len())
+                };
             }
             GroupDone::Next(hits) => {
                 self.group_results = hits;
-                self.status = format!("Group rescan: {} match(es) left", self.group_results.len());
+                if self.group_results.is_empty() {
+                    self.group_scanned = false; // narrowed to nothing → reset
+                    self.status = "Group rescan: 0 match(es) — reset".into();
+                } else {
+                    self.status =
+                        format!("Group rescan: {} match(es) left", self.group_results.len());
+                }
             }
         }
     }
@@ -475,17 +503,22 @@ impl GameGeneApp {
             bar_label(ui, tr.group_span);
             ui.add(egui::DragValue::new(&mut self.group_span).range(4..=65536));
         });
-        // While a group scan runs on the worker thread, show an (indeterminate)
-        // progress bar + Cancel; group scan sweeps once per value, so there is
-        // no single fraction to report.
+        // While a group scan runs on the worker thread, show the same progress
+        // bar as the value scan (determinate for the first scan, which reports a
+        // fraction across every value's sweep; indeterminate for the rescan).
         if let Some(job) = self.group_job.as_mut() {
+            let label = match job.kind {
+                JobKind::First => tr.scanning,
+                JobKind::Next => tr.narrowing,
+            };
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::ProgressBar::new(0.0)
-                        .desired_width(220.0)
-                        .text(tr.scanning)
-                        .animate(true),
-                );
+                let mut bar = egui::ProgressBar::new(job.fraction().unwrap_or(0.0))
+                    .desired_width(220.0)
+                    .text(label);
+                if job.fraction().is_none() {
+                    bar = bar.animate(true);
+                }
+                ui.add(bar);
                 ui.add_enabled_ui(!job.is_cancelling(), |ui| {
                     if ui.button(tr.cancel_scan).clicked() {
                         job.request_cancel();

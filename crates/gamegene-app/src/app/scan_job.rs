@@ -133,8 +133,9 @@ pub enum GroupDone {
 }
 
 /// A group scan / rescan in flight on a background thread. Mirrors [`ScanJob`]
-/// but carries `GroupHit`s and reports no fraction (see [`GroupDone`]).
+/// but carries `GroupHit`s.
 pub struct GroupJob {
+    pub kind: JobKind,
     control: Arc<ScanControl>,
     rx: Receiver<GroupDone>,
     cancelling: bool,
@@ -157,6 +158,7 @@ impl GroupJob {
             let _ = tx.send(GroupDone::First(hits));
         });
         GroupJob {
+            kind: JobKind::First,
             control,
             rx,
             cancelling: false,
@@ -169,21 +171,30 @@ impl GroupJob {
         source: Arc<dyn MemorySource>,
         hits: Vec<GroupHit>,
         queries: Vec<GroupQuery>,
+        span: u64,
     ) -> GroupJob {
         let control = Arc::new(ScanControl::new());
         let (tx, rx) = channel();
         let handle = std::thread::spawn(move || {
-            // Rescan only re-reads the recorded addresses (cheap); it doesn't
-            // need the control, but keep the same shape as `first`.
-            let hits = group_rescan(&*source, &hits, &queries);
+            // Rescan re-searches a small window around each anchor (cheap); it
+            // doesn't report progress, so its bar stays indeterminate.
+            let hits = group_rescan(&*source, &hits, &queries, span);
             let _ = tx.send(GroupDone::Next(hits));
         });
         GroupJob {
+            kind: JobKind::Next,
             control,
             rx,
             cancelling: false,
             handle: Some(handle),
         }
+    }
+
+    /// Fraction scanned in `0.0..=1.0`, or `None` before the total is known
+    /// (the rescan path never sets a total, so it stays indeterminate).
+    pub fn fraction(&self) -> Option<f32> {
+        let (done, total) = self.control.progress();
+        (total > 0).then(|| (done as f32 / total as f32).clamp(0.0, 1.0))
     }
 
     pub fn request_cancel(&mut self) {
