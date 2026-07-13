@@ -311,10 +311,10 @@ fn window_stays_inside_viewport_and_frame() {
     }
 }
 
-/// Measure the Array/structure control bar (label + input + button + separator
-/// + label + input + button + label + DragValue) — the row 0.14.0 feedback
-/// reported as not vertically centred. Prints each widget's centre-y and
-/// asserts they share one centreline.
+/// Measure the Array/structure control bar (label, input, button, separator,
+/// label, input, button, label, DragValue) — the row 0.14.0 feedback reported
+/// as not vertically centred. Prints each widget's centre-y and asserts they
+/// share one centreline.
 #[test]
 fn array_control_bar_shares_a_centreline() {
     let ctx = egui::Context::default();
