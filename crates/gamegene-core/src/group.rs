@@ -17,7 +17,7 @@
 //! really 12.37 in memory, which an exact byte match can never hit).
 
 use crate::process::MemorySource;
-use crate::scan::{collect_addresses, Compare};
+use crate::scan::{collect_addresses_with, Compare, ScanControl};
 use crate::value::{ScanValue, ValueType};
 
 /// One value of a group scan: match exactly, or anywhere within an inclusive
@@ -76,27 +76,52 @@ pub fn group_scan(
     span: u64,
     max_results: usize,
 ) -> Vec<GroupHit> {
+    group_scan_with(src, queries, span, max_results, &ScanControl::new())
+}
+
+/// [`group_scan`] honoring a [`ScanControl`], so it can run on a background
+/// thread and be cancelled. Progress is per-value (each value is a full sweep),
+/// so the UI shows an indeterminate bar rather than a fraction.
+pub fn group_scan_with(
+    src: &dyn MemorySource,
+    queries: &[GroupQuery],
+    span: u64,
+    max_results: usize,
+    control: &ScanControl,
+) -> Vec<GroupHit> {
     if queries.is_empty() || max_results == 0 {
         return Vec::new();
     }
 
-    let mut lists: Vec<Vec<u64>> = queries
-        .iter()
-        .map(|q| {
-            let mut hits = collect_addresses(src, q.value_type(), q.compare(), PER_VALUE_CAP);
-            hits.sort_unstable();
-            hits
-        })
-        .collect();
+    let mut lists: Vec<Vec<u64>> = Vec::with_capacity(queries.len());
+    for q in queries {
+        if control.is_cancelled() {
+            return Vec::new();
+        }
+        let mut hits =
+            collect_addresses_with(src, q.value_type(), q.compare(), PER_VALUE_CAP, control);
+        hits.sort_unstable();
+        lists.push(hits);
+    }
 
     let anchors = std::mem::take(&mut lists[0]);
     let others = &lists[1..];
 
     let mut out = Vec::new();
+    let mut claimed = Vec::new(); // addresses used by this anchor's hit
     for a in anchors {
+        // Each query must land on a *distinct* address, so a repeated value like
+        // [30 30] means "two different nearby 30s" (HP and MP both 30), not the
+        // same 30 paired with itself. Claim addresses greedily, nearest first.
+        claimed.clear();
+        claimed.push(a);
         let matched: Option<Vec<u64>> = others
             .iter()
-            .map(|list| nearest_within(list, a, span))
+            .map(|list| {
+                let hit = nearest_within(list, a, span, &claimed)?;
+                claimed.push(hit);
+                Some(hit)
+            })
             .collect();
         if let Some(others) = matched {
             out.push(GroupHit { anchor: a, others });
@@ -131,8 +156,9 @@ pub fn group_rescan(
         .collect()
 }
 
-/// The element of `sorted` within `span` of `center` that lies closest to it.
-fn nearest_within(sorted: &[u64], center: u64, span: u64) -> Option<u64> {
+/// The element of `sorted` within `span` of `center` that lies closest to it,
+/// skipping any address already `claimed` by another query in the same hit.
+fn nearest_within(sorted: &[u64], center: u64, span: u64, claimed: &[u64]) -> Option<u64> {
     let lo = center.saturating_sub(span);
     let hi = center.saturating_add(span);
     let start = sorted.partition_point(|&x| x < lo);
@@ -140,6 +166,7 @@ fn nearest_within(sorted: &[u64], center: u64, span: u64) -> Option<u64> {
         .iter()
         .take_while(|&&x| x <= hi)
         .copied()
+        .filter(|x| !claimed.contains(x))
         .min_by_key(|&x| x.abs_diff(center))
 }
 
@@ -257,6 +284,30 @@ mod tests {
         assert_eq!(anchors(&narrowed), vec![base + 0x200]);
         // A range the value left no longer matches.
         assert!(group_rescan(&mem, &hits, &[about(30.0), about(20.0), about(6.0)]).is_empty());
+    }
+
+    #[test]
+    fn duplicate_values_pair_two_distinct_addresses() {
+        let base = 0x70_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        // A real pair: HP and MP, both 30, eight bytes apart.
+        mem.poke(base + 0x100, &30i32.to_le_bytes());
+        mem.poke(base + 0x108, &30i32.to_le_bytes());
+        // A lone 30 with no second 30 nearby — must NOT self-pair into a hit.
+        mem.poke(base + 0x900, &30i32.to_le_bytes());
+
+        let hits = group_scan(&mem, &[exact(30), exact(30)], 64, 100);
+        // Only the two members of the real pair anchor a hit, each pointing at
+        // the other — never at itself, and never the lone 30.
+        assert_eq!(anchors(&hits), vec![base + 0x100, base + 0x108]);
+        assert_eq!(hits[0].others, vec![base + 0x108]);
+        assert_eq!(hits[1].others, vec![base + 0x100]);
+
+        // Change both to 33 in game; rescan with [33 33] keeps the pair.
+        mem.poke(base + 0x100, &33i32.to_le_bytes());
+        mem.poke(base + 0x108, &33i32.to_le_bytes());
+        let narrowed = group_rescan(&mem, &hits, &[exact(33), exact(33)]);
+        assert_eq!(anchors(&narrowed), vec![base + 0x100, base + 0x108]);
     }
 
     #[test]

@@ -568,14 +568,16 @@ fn slot_count(len: usize, size: usize) -> usize {
 /// per-value search behind the group scan. Runs the same parallel, specialized
 /// walk as the first scan, capped because a loose predicate (a float range) can
 /// match millions of slots.
-pub(crate) fn collect_addresses(
+/// Collect up to `cap` addresses of aligned slots matching `compare`, honoring
+/// a [`ScanControl`] (for a cancellable group scan on a background thread).
+pub(crate) fn collect_addresses_with(
     source: &dyn MemorySource,
     vt: ValueType,
     compare: Compare,
     cap: usize,
+    control: &ScanControl,
 ) -> Vec<u64> {
-    let control = ScanControl::new();
-    let (mut addrs, _) = parallel_collect(source, &control, cap, |buf, addr, out| {
+    let (mut addrs, _) = parallel_collect(source, control, cap, |buf, addr, out| {
         for_each_match(vt, compare, buf, None, |i| out.push(addr + i as u64));
     });
     addrs.sort_unstable();
