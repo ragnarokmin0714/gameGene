@@ -6,8 +6,9 @@ impl GameGeneApp {
     /// Open the memory viewer focused on `a` (row-aligned, byte selected).
     pub(super) fn open_hex_at(&mut self, a: u64) {
         self.show_hex = true;
-        self.hex_addr = a & !0xF;
-        self.hex_sel = Some(a);
+        let focus = focus_on(a);
+        self.hex_addr = focus.window;
+        self.hex_sel = Some(focus.selected);
         self.hex_addr_input = format!("{a:X}");
     }
 
@@ -56,7 +57,13 @@ impl GameGeneApp {
                     if ui.button(tr.mem_goto).clicked() {
                         let s = self.hex_addr_input.trim().trim_start_matches("0x");
                         if let Ok(a) = u64::from_str_radix(s, 16) {
-                            self.hex_addr = a & !0xF; // align to a 16-byte row
+                            // Same navigation as a result double-click: move
+                            // the window AND re-select, so the inspector
+                            // follows the jump instead of lingering on the
+                            // old (now off-window) address.
+                            let focus = focus_on(a);
+                            self.hex_addr = focus.window;
+                            self.hex_sel = Some(focus.selected);
                         }
                     }
                     if ui.button("- 256").clicked() {
@@ -79,8 +86,7 @@ impl GameGeneApp {
                         ui.add_space(4.0);
                         if let Some(sel) = self.hex_sel {
                             ui.monospace(format!("@ {sel:#014X}"));
-                            let off = sel.wrapping_sub(self.hex_addr) as usize;
-                            if off < got {
+                            if let Some(off) = selected_offset(self.hex_addr, sel, got) {
                                 // Show the raw bytes plus the common types (Int32,
                                 // Float); "more" expands to every type. Long values
                                 // (f64) truncate with the full value on hover, so

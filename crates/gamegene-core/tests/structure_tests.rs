@@ -67,6 +67,30 @@ fn infers_float_and_int_fields() {
 }
 
 #[test]
+fn whole_number_floats_still_infer_as_floats() {
+    // Regression: 90.0, 100.0, … are exactly what game floats look like
+    // (HP, speed, angles). The old heuristic required a fractional part
+    // and typed such a column I32, so the array view showed 1119092736
+    // instead of 90.0.
+    let stride = 16;
+    let records = 40;
+    let mut buf = vec![0u8; stride * records];
+    for r in 0..records {
+        let base = r * stride;
+        buf[base..base + 4].copy_from_slice(&(r as u32).to_le_bytes());
+        let hp = 90.0f32 + r as f32; // whole-number floats, always
+        buf[base + 4..base + 8].copy_from_slice(&hp.to_le_bytes());
+        buf[base + 8..base + 12].copy_from_slice(&1u32.to_le_bytes());
+    }
+
+    let fields = infer_fields(&buf, stride, records);
+    let at = |off: usize| fields.iter().find(|f| f.offset == off).unwrap().ty;
+    assert_eq!(at(4), ValueType::F32, "whole-number floats are floats");
+    assert_eq!(at(0), ValueType::I32);
+    assert_eq!(at(8), ValueType::I32);
+}
+
+#[test]
 fn dissect_reads_from_a_source() {
     let base = 0x2_0000u64;
     let buf = synthetic_array(32, 40);

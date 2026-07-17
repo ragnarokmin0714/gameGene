@@ -7,6 +7,18 @@ breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- **Memory viewer "Go" now re-selects the jumped-to byte.** Before, only the
+  window moved: the old selection (often outside the new window) lingered, so
+  the inspector never followed the jump and the address looked "unannotated".
+- **Array dissection recognizes whole-number floats.** The field-type
+  heuristic required a fractional part, so a column of values like 90.0 —
+  exactly what game floats look like (HP, speed, angles) — was typed Int32
+  and displayed as 1119092736. Whole-number floats of sane magnitude now
+  infer as Float. (Note: a float's *raw bytes* legitimately start with `00`s
+  — 90.0f32 is `00 00 B4 42` little-endian; the inspector's Float row is the
+  place to read it.)
+
 ## [0.16.0]
 
 ### Changed

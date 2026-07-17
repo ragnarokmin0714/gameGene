@@ -114,9 +114,11 @@ fn looks_float(buf: &[u8], offset: usize, stride: usize, records: usize) -> bool
         }
         total += 1;
         let f = f32::from_bits(bits);
-        // A "real" float field: finite, sane magnitude, and not a whole number
-        // (whole numbers are more likely small integers stored as ints).
-        if f.is_finite() && (1e-3..=1e9).contains(&f.abs()) && f.fract() != 0.0 {
+        // A "real" float field: finite and of sane magnitude. Whole numbers
+        // count too — game floats are OFTEN whole (90.0 HP, 100.0 speed),
+        // and a small integer misread as f32 is subnormal (~1e-43), far
+        // below the magnitude floor, so the two rarely collide anyway.
+        if f.is_finite() && (1e-3..=1e9).contains(&f.abs()) {
             floaty += 1;
         }
     }

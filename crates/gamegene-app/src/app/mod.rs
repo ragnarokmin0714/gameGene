@@ -6,7 +6,7 @@ use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::group::{GroupHit, GroupQuery};
-use gamegene_core::hexview::{ascii_char, interpret};
+use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
 use gamegene_core::scan::{Compare, ScanSession};
 use gamegene_core::structure::{dissect, infer_fields, Field, StrideOptions};
