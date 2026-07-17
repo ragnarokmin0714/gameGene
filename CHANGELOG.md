@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.16.1]
+
 ### Fixed
 - **Memory viewer "Go" now re-selects the jumped-to byte.** Before, only the
   window moved: the old selection (often outside the new window) lingered, so
