@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.17.0]
+
 ### Changed
 - **Save defaults to the game's name.** The save-table dialog now pre-fills
   the file name from the attached process (e.g. `eldenring.ggtable`) instead
