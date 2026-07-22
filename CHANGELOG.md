@@ -7,6 +7,13 @@ breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- **Save defaults to the game's name.** The save-table dialog now pre-fills
+  the file name from the attached process (e.g. `eldenring.ggtable`) instead
+  of the generic `GameGene.ggtable`, so tables land beside the game they
+  belong to. A trailing `.exe` is dropped and awkward characters are cleaned;
+  with nothing attached it falls back to the app name.
+
 ## [0.16.1]
 
 ### Fixed

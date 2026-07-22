@@ -168,3 +168,33 @@ fn tick_frozen_only_writes_frozen_entries() {
     assert_eq!(read(0x10), 777); // frozen entry was enforced
     assert_eq!(read(0x20), 1); // untouched
 }
+
+#[test]
+fn file_stem_from_game_name() {
+    use gamegene_core::table::table_file_stem;
+
+    // A Windows exe: drop the suffix.
+    assert_eq!(
+        table_file_stem("eldenring.exe").as_deref(),
+        Some("eldenring")
+    );
+    assert_eq!(table_file_stem("Game.EXE").as_deref(), Some("Game"));
+    // Spaces and punctuation collapse to single underscores, none at the ends.
+    assert_eq!(
+        table_file_stem("Hollow Knight").as_deref(),
+        Some("Hollow_Knight")
+    );
+    assert_eq!(
+        table_file_stem("  Papers, Please  ").as_deref(),
+        Some("Papers_Please")
+    );
+    assert_eq!(table_file_stem("Game (Demo)").as_deref(), Some("Game_Demo"));
+    // A plain name is unchanged; internal dots are dropped.
+    assert_eq!(
+        table_file_stem("hollow_knight").as_deref(),
+        Some("hollow_knight")
+    );
+    // Nothing usable: fall back is the caller's job.
+    assert_eq!(table_file_stem(""), None);
+    assert_eq!(table_file_stem("  ///  "), None);
+}

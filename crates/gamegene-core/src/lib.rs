@@ -27,5 +27,5 @@ pub use pointer::{pointer_scan, PointerScanOptions};
 pub use process::{MemoryRegion, MemorySource, ModuleInfo};
 pub use scan::{Compare, Match, ScanControl, ScanSession};
 pub use structure::{detect_stride_in, dissect, Dissection, Field, StrideOptions};
-pub use table::{CheatTable, Locator, TableEntry};
+pub use table::{table_file_stem, CheatTable, Locator, TableEntry};
 pub use value::{ScanValue, ValueType};

@@ -268,15 +268,19 @@ impl GameGeneApp {
     }
 
     pub(super) fn save_table(&mut self) {
+        // Default the file name to the attached game (e.g. "eldenring"),
+        // so a table lands next to the game it belongs to; fall back to
+        // the app name when nothing is attached. The .ggtable extension
+        // already reads as "table", so no redundant suffix is added.
+        let stem = gamegene_core::table_file_stem(&self.attached_game)
+            .unwrap_or_else(|| APP_NAME.to_owned());
         if let Some(path) = rfd::FileDialog::new()
             .add_filter(
                 "GameGene table",
                 &[gamegene_core::constants::TABLE_FILE_EXT],
             )
-            // Default to the app name; the .ggtable extension already reads as
-            // "table", so no redundant "table" suffix is added.
             .set_file_name(format!(
-                "{APP_NAME}.{}",
+                "{stem}.{}",
                 gamegene_core::constants::TABLE_FILE_EXT
             ))
             .save_file()

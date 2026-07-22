@@ -15,6 +15,43 @@ use crate::value::{ScanValue, ValueType};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+/// A filesystem-safe file stem from a detected process/game name, for
+/// defaulting the save dialog to the game being edited. Strips a trailing
+/// `.exe`, keeps alphanumerics / `-` / `_`, collapses whitespace to a
+/// single `_`, and drops everything else (path separators, punctuation).
+/// Returns `None` when nothing usable remains, so the caller can fall
+/// back to a default like the app name.
+pub fn table_file_stem(process_name: &str) -> Option<String> {
+    let trimmed = process_name.trim();
+    // Drop a Windows executable suffix; other platforms rarely carry one.
+    let base = trimmed
+        .strip_suffix(".exe")
+        .or_else(|| trimmed.strip_suffix(".EXE"))
+        .unwrap_or(trimmed);
+
+    let mut out = String::with_capacity(base.len());
+    let mut pending_gap = false;
+    for ch in base.chars() {
+        if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+            if pending_gap && !out.is_empty() {
+                out.push('_');
+            }
+            pending_gap = false;
+            out.push(ch);
+        } else {
+            // Whitespace or punctuation: remember a gap, emit at most one
+            // separator, and never a leading or trailing one.
+            pending_gap = true;
+        }
+    }
+
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 /// How to locate an entry's address in the live process.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Locator {

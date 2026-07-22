@@ -150,6 +150,9 @@ pub struct GameGeneApp {
     filter: String,
     source: Option<Arc<dyn MemorySource>>,
     attached_name: String,
+    /// Raw attached process name (no pid), for defaulting the save-table
+    /// file name to the game being edited.
+    attached_game: String,
     selected_pid: Option<u32>,
     /// Last foreground process that wasn't ourselves — the "detect game" target.
     last_foreground: Option<ProcessInfo>,
@@ -259,6 +262,7 @@ impl GameGeneApp {
             filter: String::new(),
             source: None,
             attached_name: String::new(),
+            attached_game: String::new(),
             selected_pid: None,
             last_foreground: None,
             value_type: ValueType::I32,

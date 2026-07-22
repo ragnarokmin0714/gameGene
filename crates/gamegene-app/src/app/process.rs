@@ -8,12 +8,14 @@ impl GameGeneApp {
             Ok(src) => {
                 self.source = Some(Arc::from(src));
                 self.attached_name = format!("{name} ({pid})");
+                self.attached_game = name.clone();
                 self.session = None;
                 self.status = format!("Attached to {name} (pid {pid})");
             }
             Err(e) => {
                 self.source = None;
                 self.attached_name.clear();
+                self.attached_game.clear();
                 self.status = format!("Attach failed: {e} — try running as Administrator");
             }
         }
@@ -54,6 +56,7 @@ impl GameGeneApp {
                     if self.source.is_some() && ui.button(tr.detach).clicked() {
                         self.source = None;
                         self.attached_name.clear();
+                        self.attached_game.clear();
                         self.session = None;
                         self.status = "Detached".into();
                     }
