@@ -72,9 +72,12 @@ GameGene targets **64-bit** processes.
 
 Caveats:
 
-- **Windows Defender / SmartScreen may flag it as a `HackTool`/PUA.** That is
-  expected for anything that reads and writes another process's memory; it is
-  not a virus. You may need to allow it.
+- **Windows Defender / SmartScreen may flag it** — as a `HackTool`/PUA, or with
+  a generic machine-learning verdict such as `Trojan:Win32/Wacatac.H!ml`. That
+  is expected for anything that reads and writes another process's memory; it is
+  a false positive, not a virus. See
+  [Antivirus false positives](#antivirus-false-positives) for why, and how to
+  verify the download yourself.
 - **Anti-tamper (e.g. Denuvo) on some AAA titles** does integrity checks that
   can revert writes or make addresses hard to locate. This is a difficulty
   wall, not a legal one, and it only matters for protected big-budget games —
@@ -115,6 +118,79 @@ Not supported yet: the backend returns an empty process list. Adding support
 means implementing `MemorySource` with `mach_vm_read_overwrite` /
 `mach_vm_write` in `gamegene-platform` (and code signing / entitlements to attach
 to other processes).
+
+---
+
+## Antivirus false positives
+
+Windows Defender (and some other engines) may quarantine `gamegene.exe` or warn
+on download, often with a generic label like **`Trojan:Win32/Wacatac.H!ml`**.
+**This is a false positive.** Here is the honest explanation so you can decide
+for yourself.
+
+**Why it happens.** GameGene enumerates running processes, opens another
+process, and reads and writes its memory (`OpenProcess`,
+`ReadProcessMemory` / `WriteProcessMemory`, `VirtualQueryEx`). That exact
+sequence is what a game trainer does — and also what a malicious injector does.
+Heuristic / ML scanners match on the *behaviour*, not the intent, so any honest
+memory tool trips them. The `!ml` suffix means the verdict came from a machine-
+learning model, not a specific signature; `Wacatac` is a catch-all family name.
+It is the single most common false-positive label for unsigned developer tools.
+
+**What GameGene does *not* do**, unlike real Wacatac trojans:
+
+- No network connection — it never phones home or contacts a command server.
+- No persistence — nothing is written to the registry, startup, or scheduled
+  tasks.
+- No data collection — no credentials, keystrokes, browser data, or wallets.
+- No dropping / downloading of other executables.
+
+Its entire behaviour is local memory reads and writes against the process **you**
+attach to. And it's open source — you can read every `unsafe` syscall in
+[`gamegene-platform`](crates/gamegene-platform/src) and build it yourself.
+
+### Verify the download yourself
+
+Every GitHub release ships a `.sha256` checksum next to each archive. Confirm the
+file you downloaded is byte-for-byte the one the workflow built:
+
+```powershell
+# Windows (PowerShell)
+Get-FileHash -Algorithm SHA256 .\gamegene-<version>-windows-x86_64.zip
+```
+
+```sh
+# Linux / macOS
+sha256sum gamegene-<version>-linux-x86_64.tar.gz   # or: shasum -a 256 <file>
+```
+
+Compare the output to the published `.sha256`. If it matches, the file was not
+tampered with in transit.
+
+**See the community scan on VirusTotal.** Take the SHA-256 from above and open:
+
+```
+https://www.virustotal.com/gui/file/<paste-the-sha256-here>
+```
+
+You'll typically see only a couple of heuristic/ML engines flagging it while the
+large majority report clean — the fingerprint of a false positive. You can also
+upload the archive there yourself.
+
+### If a warning still worries you
+
+- **Report the false positive to Microsoft** at
+  <https://www.microsoft.com/wdsi/filesubmission> (choose *software developer →
+  incorrectly detected*). They usually clear it from the cloud definitions
+  within a day or two.
+- **Build from source** instead of downloading a binary (see
+  [Building](#building)) — you control exactly what runs.
+- **Prefer a longer-established build?** Every past release stays available on
+  the [Releases page](../../releases). Builds from **0.16.0 and earlier** have
+  been public and unchanged for much longer, so if you'd rather run something
+  with a longer track record, pick one of those. Note it's the same class of
+  tool, so Defender may still flag it — the detection is behavioural, not
+  specific to any version.
 
 ---
 

@@ -60,6 +60,13 @@ jobs:
         if: runner.os == 'Linux'
         run: tar -czf "$ASSET" -C target/release ${{ matrix.bin }}
 
+      # Publish a SHA-256 next to each archive so users can confirm the download
+      # is byte-for-byte what CI built (see README → Antivirus false positives).
+      # Git Bash on the Windows runner ships sha256sum too, so one step covers both.
+      - name: Checksum
+        shell: bash
+        run: sha256sum "$ASSET" > "$ASSET.sha256"
+
       # Publish with the GitHub CLI (preinstalled on runners) instead of a
       # third-party Node action, so there is nothing to keep bumping as GitHub
       # deprecates Node runtimes. Both matrix jobs share one release: whichever
@@ -71,4 +78,24 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           gh release create "$tag" --title "$tag" --generate-notes 2>/dev/null || true
-          gh release upload "$tag" "$ASSET" --clobber
+          gh release upload "$tag" "$ASSET" "$ASSET.sha256" --clobber
+
+      # Append the antivirus / checksum note to the auto-generated notes. Only
+      # the Linux job does this so the two matrix runners can't double-append;
+      # the guard makes a re-run idempotent. It reads the current body (which
+      # may not exist until the other job created the release), so it retries.
+      - name: Append antivirus note to release notes
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          for _ in 1 2 3 4 5; do
+            body=$(gh release view "$tag" --json body -q .body 2>/dev/null) && break
+            sleep 3
+          done
+          if ! grep -q "Antivirus note (false positive)" <<<"$body"; then
+            printf '%s\n\n%s\n' "$body" "$(cat .github/RELEASE_NOTES_FOOTER.md)" \
+              | gh release edit "$tag" --notes-file -
+          fi
