@@ -7,6 +7,19 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-07-23
+
+### Added
+- **Verifiable downloads.** Every release archive now ships a matching
+  `.sha256` checksum, and the release notes explain how to check it.
+
+### Documentation
+- **Antivirus false positives explained.** A new README section — and a note
+  appended to every release — covers why Windows Defender may flag GameGene as
+  `Trojan:Win32/Wacatac.H!ml`, what the tool does *not* do (no network,
+  persistence, data collection, or dropped files), and how to verify a
+  download via SHA-256 and VirusTotal.
+
 ## [0.17.0]
 
 ### Changed
