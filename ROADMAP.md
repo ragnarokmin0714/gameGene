@@ -67,6 +67,44 @@ Sharp edges to design for, not bolt on:
 Heavy enough to be its own flagship release, not bundled with quality-of-life
 work.
 
+## Save-file editing (`FileSource`)
+
+Scan and edit a game's save file with the engine that already exists. A
+`MemorySource` implementation backed by an mmap'd file — `regions()` returns the
+one span, `read`/`write` hit the mapping — and first/next scan, structure
+dissection, the hex viewer and the fill writer all work on a save with no change
+to `gamegene-core`. This is the design's own claim ("core never calls the OS")
+being cashed in, and it is the cheapest large feature on this list.
+
+One workflow it unlocks that a live scanner cannot do at all: **diff two
+saves.** Save, spend the money, save again, then run Decreased across the pair.
+No animation, no timers, no per-frame scratch — the noise that makes an
+unknown-value hunt in live memory so slow simply isn't there.
+
+- Relative scans need a *pair* of files, not one: a second `MemorySource` as the
+  "previous" side. That is the one real engine change, since `next_scan`
+  currently re-reads the same source it scanned.
+- Writes go straight to the file, so back it up first. An undo of the last
+  write, like the fill writer already has, is the minimum.
+- Table entries would need a locator that means "offset into this file" — a
+  saved table should not confuse a file offset with a process address.
+
+Scope this honestly: it works on saves that are **plain, uncompressed and
+unchecksummed**. That covers a lot of indie games (bare JSON, bare binary) but
+the tool cannot pretend to be general.
+
+- **Checksums / hashes** are per-game; an edited save is rejected on load and
+  there is no generic fix. Detecting *that* a save has a trailing hash is
+  feasible; recomputing it is not.
+- **Encrypted** saves (Unity ES3 in encrypted mode, custom XOR) have no
+  plaintext to scan. Out of scope, and should say so rather than return junk.
+- **Compressed** saves (RPG Maker's LZString, gzip) must be inflated first. A
+  transparent gzip/zlib layer is plausible later; a per-engine format zoo is
+  not.
+
+The honest framing is "a hex editor with a scan engine over a save file", not a
+save editor that knows any particular game.
+
 ## Quality of life
 
 - Global hotkeys to toggle a freeze / set a value without alt-tabbing out of the
