@@ -189,6 +189,16 @@ pub struct GameGeneApp {
     settle_left: u8,
     settle_next: Option<Instant>,
 
+    /// Type the results list renders values as, when it should differ from the
+    /// type being scanned. `None` follows the scan type.
+    ///
+    /// These come apart because scanning as Int32 deliberately covers positive
+    /// floats — an f32's bit pattern orders the same way as the number, so
+    /// Increased/Decreased track it correctly — but the *value* then reads as a
+    /// huge integer (2135.0f shows as 1157984256). Rendering as Float turns the
+    /// list back into numbers you recognize, without touching the session.
+    display_as: Option<ValueType>,
+
     // Results filter — a view over the candidates, not a narrowing step.
     filter_addr_min: String,
     filter_addr_max: String,
@@ -310,6 +320,7 @@ impl GameGeneApp {
             scan_job: None,
             settle_left: 0,
             settle_next: None,
+            display_as: None,
             filter_addr_min: String::new(),
             filter_addr_max: String::new(),
             filter_value: ValueFilter::default(),
@@ -493,4 +504,20 @@ fn read_value(src: &dyn MemorySource, addr: u64, ty: ValueType) -> Option<ScanVa
         return None;
     }
     Some(ScanValue::from_le_bytes(ty, &buf))
+}
+
+/// Read as much of the slot at `addr` as is readable, up to the widest value
+/// type, returning `(bytes read, buffer)`.
+///
+/// Narrows on failure rather than giving up: near the end of a region an 8-byte
+/// read fails outright even though the 4-byte value the user is looking at is
+/// perfectly readable.
+fn read_slot(src: &dyn MemorySource, addr: u64) -> Option<(usize, [u8; 8])> {
+    let mut buf = [0u8; 8];
+    for want in [8usize, 4, 2, 1] {
+        if matches!(src.read(addr, &mut buf[..want]), Ok(n) if n == want) {
+            return Some((want, buf));
+        }
+    }
+    None
 }

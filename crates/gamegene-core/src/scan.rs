@@ -99,6 +99,14 @@ pub struct ResultFilter {
     /// predicates make sense here; relative ones have no previous to compare
     /// against and are treated as "no filter".
     pub value: Option<Compare>,
+    /// Reinterpret each candidate's bytes as this type before applying `value`.
+    ///
+    /// Set when the results are being *shown* as a different type than they were
+    /// scanned as (an Int32 scan rendering its positive floats as Float), so a
+    /// filter like "between 2000 and 3000" means the same numbers the user is
+    /// reading. Ignored when the target type is wider than the scanned one —
+    /// the extra bytes were never recorded, so they cannot be decoded.
+    pub as_type: Option<ValueType>,
 }
 
 impl ResultFilter {
@@ -118,8 +126,19 @@ impl ResultFilter {
         match self.value {
             // `eval` with no previous: absolute predicates ignore it, relative
             // ones can never hold, so guard them into a no-op instead.
-            Some(c) if c.needs_previous().is_none() => c.eval(m.previous, None),
+            Some(c) if c.needs_previous().is_none() => c.eval(self.view(m.previous), None),
             _ => true,
+        }
+    }
+
+    /// `v` decoded as [`as_type`](Self::as_type), or unchanged when no
+    /// reinterpretation is asked for or the target does not fit.
+    fn view(&self, v: ScanValue) -> ScanValue {
+        match self.as_type {
+            Some(ty) if ty != v.value_type() && ty.size() <= v.value_type().size() => {
+                ScanValue::from_le_bytes(ty, &v.to_le_bytes())
+            }
+            _ => v,
         }
     }
 }
@@ -909,7 +928,7 @@ mod tests {
         let f = ResultFilter {
             addr_min: Some(base + 0x10),
             addr_max: Some(base + 0x20),
-            value: None,
+            ..Default::default()
         };
         assert!(f.is_active());
         let (kept, total) = session.filtered_matches(&f);
@@ -934,6 +953,51 @@ mod tests {
         let none = ResultFilter::default();
         assert!(!none.is_active());
         assert_eq!(session.filtered_matches(&none).1, session.len());
+    }
+
+    /// Scanning as Int32 finds positive floats (their bit patterns order the
+    /// same way as the numbers), but the recorded value then reads as a huge
+    /// integer. A filter typed in the units the user is *reading* must therefore
+    /// reinterpret the bytes before comparing.
+    #[test]
+    fn result_filter_reinterprets_bytes_for_the_displayed_type() {
+        let base = 0x50_000u64;
+        let mem = MockMemory::new(base, 256);
+        // 2135.0f32 — as Int32 this is 1157984256.
+        mem.poke(base + 0x10, &2135.0f32.to_le_bytes());
+        mem.poke(base + 0x20, &7i32.to_le_bytes());
+        let session = ScanSession::first_scan(&mem, ValueType::I32, Compare::Unknown).unwrap();
+
+        // "Between 2000 and 3000" means nothing to the Int32 the scan recorded…
+        let as_scanned = ResultFilter {
+            value: Some(Compare::Between(ScanValue::I32(2000), ScanValue::I32(3000))),
+            ..Default::default()
+        };
+        assert_eq!(session.filtered_matches(&as_scanned).1, 0);
+
+        // …but read as Float it is exactly the value on screen.
+        let as_shown = ResultFilter {
+            as_type: Some(ValueType::F32),
+            value: Some(Compare::Between(
+                ScanValue::F32(2000.0),
+                ScanValue::F32(3000.0),
+            )),
+            ..Default::default()
+        };
+        let (kept, total) = session.filtered_matches(&as_shown);
+        assert_eq!(total, 1);
+        assert_eq!(kept[0].address, base + 0x10);
+    }
+
+    /// Widening cannot work — the bytes past the scanned width were never
+    /// recorded — so it must leave the value alone rather than decode garbage.
+    #[test]
+    fn result_filter_does_not_widen_beyond_the_scanned_type() {
+        let f = ResultFilter {
+            as_type: Some(ValueType::F64),
+            ..Default::default()
+        };
+        assert_eq!(f.view(ScanValue::I32(7)), ScanValue::I32(7));
     }
 
     /// A relative predicate has no previous value to compare a *view* against,

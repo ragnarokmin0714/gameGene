@@ -8,12 +8,22 @@ breaking changes).
 ## [Unreleased]
 
 ### Added
+- **"Show as" on the results list.** A type picker beside *Results* re-renders
+  the same candidates as another type without rescanning, and hovering a value
+  lists every interpretation of those bytes. This is the missing half of
+  scanning integers to find floats: an Int32 scan does find a positive `f32`
+  (its bit pattern orders the same way as the number), but the value then reads
+  as `1157984256` when the game shows `2135`. Switching to Float makes the list
+  legible — and an entry added from it becomes a Float entry, so the cheat
+  table takes `3000` and writes `3000.0f` rather than making you convert.
 - **Results filter.** A collapsible row above the results list narrows what it
   shows by address window and by value (> 0, < 0, or a range), with a
   `shown / total` count. It filters the *view*, not the candidate set, so
   clearing it brings everything back and the next scan still works from every
   candidate. Filtering happens before the 5,000-row display cap, so it can
-  reach candidates the unfiltered list would never render.
+  reach candidates the unfiltered list would never render. Bounds are typed as
+  whatever the list is showing, so a filter reads in the same units as the
+  values beside it.
 
 ### Fixed
 - **The drop-fluctuating-values filter now runs all of its passes.** It tested

@@ -74,6 +74,9 @@ impl GameGeneApp {
             self.status = e;
             return;
         }
+        // A fresh scan starts from a fresh view; a display type left over from
+        // the last hunt would silently re-interpret the new results.
+        self.display_as = None;
         self.status = "Scanning…".into();
         self.scan_job = Some(ScanJob::first(src, self.value_type, compare));
     }
@@ -93,6 +96,13 @@ impl GameGeneApp {
         self.narrow_with(compare);
     }
 
+    /// The type the results list renders — and the type an entry added from it
+    /// gets, so the cheat table's set-value box takes the number you can read
+    /// (`3000`) and writes the bytes the game wants (`3000.0f`).
+    pub(super) fn display_type(&self) -> ValueType {
+        self.display_as.unwrap_or(self.value_type)
+    }
+
     /// Turn the filter inputs into a [`ResultFilter`]. Unparsable or empty
     /// fields simply don't constrain anything, so a half-typed address never
     /// blanks the list — it just doesn't filter yet.
@@ -101,11 +111,15 @@ impl GameGeneApp {
             let t = t.trim().trim_start_matches("0x").trim_start_matches("0X");
             (!t.is_empty()).then(|| u64::from_str_radix(t, 16).ok())?
         };
-        let num = |t: &str| ScanValue::parse(self.value_type, t.trim()).ok();
-        let zero = ScanValue::parse(self.value_type, "0").ok();
+        // Bounds are typed as what the list is *showing*, so a filter reads in
+        // the same units as the values next to it.
+        let ty = self.display_type();
+        let num = |t: &str| ScanValue::parse(ty, t.trim()).ok();
+        let zero = ScanValue::parse(ty, "0").ok();
         ResultFilter {
             addr_min: hex(&self.filter_addr_min),
             addr_max: hex(&self.filter_addr_max),
+            as_type: self.display_as,
             value: match self.filter_value {
                 ValueFilter::Any => None,
                 ValueFilter::Positive => zero.map(Compare::GreaterThan),
@@ -615,7 +629,29 @@ impl GameGeneApp {
             }
 
             ui.separator();
-            ui.strong(tr.results);
+            ui.horizontal(|ui| {
+                ui.strong(tr.results);
+                // Re-interpret the same bytes without rescanning: an Int32 scan
+                // finds positive floats too (their bit patterns order the same
+                // way), and this is how you read them back as numbers.
+                bar_label(ui, tr.show_as);
+                let current = self.display_type();
+                egui::ComboBox::from_id_source("display_as")
+                    .selected_text(match self.display_as {
+                        None => tr.show_as_scan,
+                        Some(t) => t.label(),
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.display_as, None, tr.show_as_scan)
+                            .on_hover_text(tr.show_as_hint);
+                        for t in ValueType::ALL {
+                            ui.selectable_value(&mut self.display_as, Some(t), t.label());
+                        }
+                    });
+                if self.display_as.is_some() {
+                    ui.label(RichText::new(format!("({})", current.label())).weak());
+                }
+            });
             self.filter_bar(ui);
 
             let filter = self.build_result_filter();
@@ -646,7 +682,10 @@ impl GameGeneApp {
             let (add_addr, goto_addr) = self.results_list(ui, "results", &addrs);
 
             if let Some(addr) = add_addr {
-                self.add_to_table(addr, self.value_type);
+                // The displayed type, not the scanned one: an entry added from a
+                // list rendered as Float must be a Float entry, so its set-value
+                // box takes 3000 and writes 3000.0f.
+                self.add_to_table(addr, self.display_type());
             }
             if let Some(a) = goto_addr {
                 self.open_hex_at(a);
@@ -827,7 +866,7 @@ impl GameGeneApp {
     ) -> (Option<u64>, Option<u64>) {
         let tr = self.tr();
         let src = self.source.as_deref();
-        let vt = self.value_type;
+        let vt = self.display_type();
         let mut add_addr = None;
         let mut goto_addr = None;
         egui::ScrollArea::vertical()
@@ -863,9 +902,16 @@ impl GameGeneApp {
                                     ui.close_menu();
                                 }
                             });
-                            let now = src
-                                .and_then(|s| read_value(s, address, vt))
-                                .map(|v| v.display())
+                            // Read the whole slot, not just the displayed type, so
+                            // hovering can answer "what else could these bytes
+                            // be?" — the question you hit when a float shows up
+                            // in an Int32 column as 1157984256 and means 2135.
+                            let slot = src.and_then(|s| read_slot(s, address));
+                            let now = slot
+                                .and_then(|(len, buf)| {
+                                    (len >= vt.size())
+                                        .then(|| ScanValue::from_le_bytes(vt, &buf).display())
+                                })
                                 .unwrap_or_else(|| "—".into());
                             // Fixed width so a live value changing length does not
                             // reflow the grid and shake the list; long values
@@ -874,7 +920,15 @@ impl GameGeneApp {
                                 [90.0, ui.spacing().interact_size.y],
                                 egui::Label::new(&now).truncate(),
                             )
-                            .on_hover_text(&now);
+                            .on_hover_ui(|ui| {
+                                ui.monospace(&now);
+                                let Some((len, buf)) = slot else { return };
+                                ui.separator();
+                                ui.label(RichText::new(tr.as_types).weak());
+                                for (ty, v) in interpret(&buf[..len]) {
+                                    ui.monospace(format!("{:<7}{}", ty.label(), v.display()));
+                                }
+                            });
                             if ui.small_button(tr.add_table).clicked() {
                                 add_addr = Some(address);
                             }
