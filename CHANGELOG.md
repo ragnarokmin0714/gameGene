@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-08-02
+
 ### Added
 - **"Show as" on the results list.** A type picker beside *Results* re-renders
   the same candidates as another type without rescanning, and hovering a value
