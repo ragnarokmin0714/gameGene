@@ -82,6 +82,48 @@ impl Compare {
     }
 }
 
+/// A view filter over a finished scan's candidates: an address window, a
+/// predicate on the value, or both.
+///
+/// This narrows what the results list *shows*; it does not touch the candidate
+/// set, so clearing the filter brings everything back and the next scan still
+/// works from the full list. That is the difference from running another scan
+/// with the same predicate, which discards the candidates for good.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ResultFilter {
+    /// Lowest address to show (inclusive).
+    pub addr_min: Option<u64>,
+    /// Highest address to show (inclusive).
+    pub addr_max: Option<u64>,
+    /// A predicate on the value recorded at the last scan. Only absolute
+    /// predicates make sense here; relative ones have no previous to compare
+    /// against and are treated as "no filter".
+    pub value: Option<Compare>,
+}
+
+impl ResultFilter {
+    /// Whether this filter would drop anything (an all-`None` filter is skipped
+    /// entirely, so the unfiltered path stays free).
+    pub fn is_active(&self) -> bool {
+        self.addr_min.is_some() || self.addr_max.is_some() || self.value.is_some()
+    }
+
+    fn keeps(&self, m: &Match) -> bool {
+        if self.addr_min.is_some_and(|lo| m.address < lo) {
+            return false;
+        }
+        if self.addr_max.is_some_and(|hi| m.address > hi) {
+            return false;
+        }
+        match self.value {
+            // `eval` with no previous: absolute predicates ignore it, relative
+            // ones can never hold, so guard them into a no-op instead.
+            Some(c) if c.needs_previous().is_none() => c.eval(m.previous, None),
+            _ => true,
+        }
+    }
+}
+
 /// Cooperative progress + cancellation for a running scan.
 ///
 /// The engine reports bytes scanned and checks [`is_cancelled`](Self::is_cancelled)
@@ -454,6 +496,26 @@ impl ScanSession {
         self.iter_matches().take(MAX_RESULTS_DISPLAY).collect()
     }
 
+    /// Like [`display_matches`](Self::display_matches), but keeping only
+    /// candidates that pass `filter`, and returning how many passed in total.
+    ///
+    /// Filtering happens *before* the display cap, so a filter can reach
+    /// candidates past the first `MAX_RESULTS_DISPLAY` — the whole point when
+    /// the interesting address sits in the middle of a million-candidate list.
+    /// The returned count is the true number of survivors, which may exceed the
+    /// vector's length.
+    pub fn filtered_matches(&self, filter: &ResultFilter) -> (Vec<Match>, usize) {
+        let mut kept = Vec::new();
+        let mut total = 0usize;
+        for m in self.iter_matches().filter(|m| filter.keeps(m)) {
+            total += 1;
+            if kept.len() < MAX_RESULTS_DISPLAY {
+                kept.push(m);
+            }
+        }
+        (kept, total)
+    }
+
     /// Materialize every candidate. Cheap for a list; for a snapshot this
     /// expands every slot, so only call it on bounded data (e.g. in tests).
     pub fn matches(&self) -> Vec<Match> {
@@ -819,6 +881,76 @@ mod tests {
             assert!(t);
             assert_eq!(again, first);
         }
+    }
+
+    /// A result filter narrows the *view*, and does so before the display cap
+    /// so it can reach candidates the unfiltered list would never show.
+    #[test]
+    fn result_filter_narrows_by_address_and_value() {
+        let base = 0x30_000u64;
+        let mem = MockMemory::new(base, 4096);
+        // Fill with a value outside the scanned range so the region's zeroed
+        // slots don't join the candidate set and blur what the filter did.
+        for slot in 0..1024u64 {
+            mem.poke(base + slot * 4, &9999i32.to_le_bytes());
+        }
+        for (off, v) in [(0x00u64, 5i32), (0x10, -7), (0x20, 5), (0x800, 5)] {
+            mem.poke(base + off, &v.to_le_bytes());
+        }
+        let session = ScanSession::first_scan(
+            &mem,
+            ValueType::I32,
+            Compare::Between(ScanValue::I32(-10), ScanValue::I32(10)),
+        )
+        .unwrap();
+        assert_eq!(session.len(), 4);
+
+        // Address window.
+        let f = ResultFilter {
+            addr_min: Some(base + 0x10),
+            addr_max: Some(base + 0x20),
+            value: None,
+        };
+        assert!(f.is_active());
+        let (kept, total) = session.filtered_matches(&f);
+        assert_eq!(total, kept.len());
+        assert_eq!(
+            kept.iter().map(|m| m.address).collect::<Vec<_>>(),
+            vec![base + 0x10, base + 0x20]
+        );
+
+        // Value predicate: negatives only.
+        let f = ResultFilter {
+            value: Some(Compare::LessThan(ScanValue::I32(0))),
+            ..Default::default()
+        };
+        let (kept, _) = session.filtered_matches(&f);
+        assert_eq!(
+            kept.iter().map(|m| m.address).collect::<Vec<_>>(),
+            vec![base + 0x10]
+        );
+
+        // An empty filter is inert, and never claims to be active.
+        let none = ResultFilter::default();
+        assert!(!none.is_active());
+        assert_eq!(session.filtered_matches(&none).1, session.len());
+    }
+
+    /// A relative predicate has no previous value to compare a *view* against,
+    /// so it must not silently filter everything out.
+    #[test]
+    fn result_filter_ignores_relative_predicates() {
+        let base = 0x40_000u64;
+        let mem = MockMemory::new(base, 256);
+        mem.poke(base, &1i32.to_le_bytes());
+        let session =
+            ScanSession::first_scan(&mem, ValueType::I32, Compare::Exact(ScanValue::I32(1)))
+                .unwrap();
+        let f = ResultFilter {
+            value: Some(Compare::Increased),
+            ..Default::default()
+        };
+        assert_eq!(session.filtered_matches(&f).1, session.len());
     }
 
     /// Below the cap nothing is dropped and truncation is not reported.

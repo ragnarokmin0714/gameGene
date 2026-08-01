@@ -7,6 +7,25 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Results filter.** A collapsible row above the results list narrows what it
+  shows by address window and by value (> 0, < 0, or a range), with a
+  `shown / total` count. It filters the *view*, not the candidate set, so
+  clearing it brings everything back and the next scan still works from every
+  candidate. Filtering happens before the 5,000-row display cap, so it can
+  reach candidates the unfiltered list would never render.
+
+### Fixed
+- **The drop-fluctuating-values filter now runs all of its passes.** It tested
+  "is there a session?" before "is a pass running?", but a pass in flight has
+  taken the session — so the filter read that as "the run is over" and stopped
+  after a single pass, which is far too few to remove anything that moves.
+- **Picking a narrowing mode no longer snaps back to Exact.** A running next
+  scan holds the session on the worker thread, and the mode combo read that
+  temporary gap as "no scan yet", swapping its list for the first-scan one and
+  overwriting the user's choice with `Exact` — most visible right after an
+  unknown-value scan, whose first passes are the slow ones.
+
 ## [0.18.0] - 2026-08-01
 
 ### Added

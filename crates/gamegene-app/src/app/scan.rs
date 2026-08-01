@@ -93,6 +93,96 @@ impl GameGeneApp {
         self.narrow_with(compare);
     }
 
+    /// Turn the filter inputs into a [`ResultFilter`]. Unparsable or empty
+    /// fields simply don't constrain anything, so a half-typed address never
+    /// blanks the list — it just doesn't filter yet.
+    fn build_result_filter(&self) -> ResultFilter {
+        let hex = |t: &str| {
+            let t = t.trim().trim_start_matches("0x").trim_start_matches("0X");
+            (!t.is_empty()).then(|| u64::from_str_radix(t, 16).ok())?
+        };
+        let num = |t: &str| ScanValue::parse(self.value_type, t.trim()).ok();
+        let zero = ScanValue::parse(self.value_type, "0").ok();
+        ResultFilter {
+            addr_min: hex(&self.filter_addr_min),
+            addr_max: hex(&self.filter_addr_max),
+            value: match self.filter_value {
+                ValueFilter::Any => None,
+                ValueFilter::Positive => zero.map(Compare::GreaterThan),
+                ValueFilter::Negative => zero.map(Compare::LessThan),
+                // Both bounds are needed for a range; with only one typed the
+                // filter waits rather than guessing the other end.
+                ValueFilter::Between => num(&self.filter_lo)
+                    .zip(num(&self.filter_hi))
+                    .map(|(lo, hi)| Compare::Between(lo, hi)),
+            },
+        }
+    }
+
+    /// The results filter row: an address window and a predicate on the value.
+    /// Collapsed by default — it is a refinement, not part of the main flow.
+    fn filter_bar(&mut self, ui: &mut egui::Ui) {
+        let tr = self.tr();
+        egui::CollapsingHeader::new(tr.filter_title)
+            .id_source("result_filter")
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    bar_label(ui, tr.filter_addr);
+                    ui.label("0x");
+                    ui.add(
+                        control_edit(&mut self.filter_addr_min, 110.0).hint_text(tr.filter_from),
+                    );
+                    ui.label("…0x");
+                    ui.add(control_edit(&mut self.filter_addr_max, 110.0).hint_text(tr.filter_to));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    bar_label(ui, tr.filter_value);
+                    egui::ComboBox::from_id_source("filter_value")
+                        .selected_text(match self.filter_value {
+                            ValueFilter::Any => tr.filter_any,
+                            ValueFilter::Positive => tr.filter_pos,
+                            ValueFilter::Negative => tr.filter_neg,
+                            ValueFilter::Between => tr.m_between,
+                        })
+                        .show_ui(ui, |ui| {
+                            for (v, label) in [
+                                (ValueFilter::Any, tr.filter_any),
+                                (ValueFilter::Positive, tr.filter_pos),
+                                (ValueFilter::Negative, tr.filter_neg),
+                                (ValueFilter::Between, tr.m_between),
+                            ] {
+                                ui.selectable_value(&mut self.filter_value, v, label);
+                            }
+                        });
+                    if self.filter_value == ValueFilter::Between {
+                        ui.add(control_edit(&mut self.filter_lo, 90.0).hint_text(tr.value_hint));
+                        ui.label("…");
+                        ui.add(control_edit(&mut self.filter_hi, 90.0).hint_text(tr.value_hint));
+                    }
+                    if ui.button(tr.filter_clear).clicked() {
+                        self.filter_addr_min.clear();
+                        self.filter_addr_max.clear();
+                        self.filter_lo.clear();
+                        self.filter_hi.clear();
+                        self.filter_value = ValueFilter::Any;
+                    }
+                });
+                ui.label(RichText::new(tr.filter_note).weak());
+            });
+    }
+
+    /// Whether there is a candidate set to narrow — including while a narrowing
+    /// pass is in flight, which holds the session on the worker thread. Anything
+    /// that asks "is a scan in progress?" must use this rather than
+    /// `session.is_some()`, or it will see a false gap for the length of a scan.
+    pub(super) fn narrowing(&self) -> bool {
+        self.session.is_some()
+            || self
+                .scan_job
+                .as_ref()
+                .is_some_and(|j| j.kind == JobKind::Next)
+    }
+
     /// Narrow the current session with an explicit predicate, bypassing the mode
     /// combo. Used by the drop-fluctuating-values filter, which runs its own
     /// `Unchanged` passes without disturbing what the user has selected.
@@ -125,26 +215,31 @@ impl GameGeneApp {
 
     /// Drive the filter: one pass per interval, until the passes run out or the
     /// session is gone (narrowed to nothing, or reset under it).
+    ///
+    /// Order matters. A pass in flight has *taken* the session (see
+    /// [`narrow_with`](Self::narrow_with)), so "no session" only means the run
+    /// is over once no job is running too — testing it first stopped the filter
+    /// dead after its first pass, which left the fluctuating values it exists to
+    /// remove still in the list.
     pub(super) fn tick_settle_filter(&mut self) {
-        if self.settle_left == 0 {
-            return;
+        match settle_step(
+            self.settle_left,
+            self.scan_job.is_some(),
+            self.session.is_some(),
+            self.settle_next.is_none_or(|t| Instant::now() >= t),
+        ) {
+            SettleStep::Idle => {}
+            SettleStep::Stop => {
+                self.settle_left = 0;
+                self.settle_next = None;
+            }
+            SettleStep::Run => {
+                self.settle_left -= 1;
+                self.settle_next = Some(Instant::now() + Duration::from_millis(SETTLE_INTERVAL_MS));
+                self.narrow_with(Compare::Unchanged);
+                self.status = format!("Dropping fluctuating values… {} left", self.settle_left);
+            }
         }
-        if self.session.is_none() {
-            self.settle_left = 0;
-            self.settle_next = None;
-            return;
-        }
-        if self.scan_job.is_some() {
-            return; // a pass is still running
-        }
-        let due = self.settle_next.is_none_or(|t| Instant::now() >= t);
-        if !due {
-            return;
-        }
-        self.settle_left -= 1;
-        self.settle_next = Some(Instant::now() + Duration::from_millis(SETTLE_INTERVAL_MS));
-        self.narrow_with(Compare::Unchanged);
-        self.status = format!("Dropping fluctuating values… {} left", self.settle_left);
     }
 
     /// Poll a running scan; when it finishes, install the result (or discard it
@@ -382,7 +477,11 @@ impl GameGeneApp {
                     });
 
                 ui.label(tr.scan);
-                let modes: &[ScanMode] = if self.session.is_some() {
+                // A running next scan has *taken* the session, so `session` alone
+                // would flip this back to the first-scan list mid-narrow and
+                // clobber the user's choice with `FIRST[0]` — picking Decreased
+                // and watching it snap to Exact the moment the scan started.
+                let modes: &[ScanMode] = if self.narrowing() {
                     &ScanMode::NEXT
                 } else {
                     &ScanMode::FIRST
@@ -436,12 +535,12 @@ impl GameGeneApp {
                 ui.horizontal(|ui| {
                     // Once a scan is in progress, first scan is disabled until Reset
                     // so an accidental click can't wipe the narrowed results.
-                    ui.add_enabled_ui(self.session.is_none(), |ui| {
+                    ui.add_enabled_ui(!self.narrowing(), |ui| {
                         if ui.button(tr.first_scan).clicked() {
                             self.do_first_scan();
                         }
                     });
-                    ui.add_enabled_ui(self.session.is_some(), |ui| {
+                    ui.add_enabled_ui(self.narrowing(), |ui| {
                         if ui.button(tr.next_scan).clicked() {
                             self.do_next_scan();
                         }
@@ -517,14 +616,32 @@ impl GameGeneApp {
 
             ui.separator();
             ui.strong(tr.results);
+            self.filter_bar(ui);
 
-            let addrs: Vec<u64> = self
-                .session
-                .as_ref()
-                .map(|s| s.display_matches().iter().map(|m| m.address).collect())
-                .unwrap_or_default();
-            if self.session.is_none() {
+            let filter = self.build_result_filter();
+            let (addrs, shown, total) = match self.session.as_ref() {
+                Some(s) if filter.is_active() => {
+                    let (matches, kept) = s.filtered_matches(&filter);
+                    (
+                        matches.iter().map(|m| m.address).collect::<Vec<_>>(),
+                        kept,
+                        s.len(),
+                    )
+                }
+                Some(s) => (
+                    s.display_matches()
+                        .iter()
+                        .map(|m| m.address)
+                        .collect::<Vec<_>>(),
+                    s.len(),
+                    s.len(),
+                ),
+                None => (Vec::new(), 0, 0),
+            };
+            if !self.narrowing() {
                 ui.label(RichText::new(tr.no_scan).weak());
+            } else if filter.is_active() {
+                ui.label(RichText::new(format!("{} / {} {}", shown, total, tr.matches)).weak());
             }
             let (add_addr, goto_addr) = self.results_list(ui, "results", &addrs);
 
@@ -769,6 +886,38 @@ impl GameGeneApp {
     }
 }
 
+/// What the drop-fluctuating-values filter should do this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SettleStep {
+    /// Not running, or waiting (for the interval, or for a pass to finish).
+    Idle,
+    /// The run is over: no passes left, or the session went away for good.
+    Stop,
+    /// Start the next pass now.
+    Run,
+}
+
+/// Sequencing for the filter, split out so the ordering it depends on is
+/// testable without a running app. The subtlety is `job_running`: a pass in
+/// flight has taken the session, so `has_session == false` means "the run
+/// ended" only when no job is running.
+fn settle_step(passes_left: u8, job_running: bool, has_session: bool, due: bool) -> SettleStep {
+    if passes_left == 0 {
+        return SettleStep::Idle;
+    }
+    if job_running {
+        return SettleStep::Idle; // a pass is still running; it holds the session
+    }
+    if !has_session {
+        return SettleStep::Stop; // narrowed to nothing, or reset under us
+    }
+    if due {
+        SettleStep::Run
+    } else {
+        SettleStep::Idle
+    }
+}
+
 /// Reject relative predicates for a first scan (they need a previous scan to
 /// compare against). Mirrors the engine's own check, but done before spawning
 /// the worker so the error is immediate.
@@ -838,6 +987,29 @@ fn group_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pass in flight holds the session, so the filter must wait rather than
+    /// read the temporary `None` as "the run is over". Getting this backwards
+    /// stopped the filter after a single pass — not enough to remove anything.
+    #[test]
+    fn settle_waits_for_the_pass_that_holds_the_session() {
+        // Pass running: session taken, but the run is very much alive.
+        assert_eq!(settle_step(3, true, false, true), SettleStep::Idle);
+        assert_eq!(settle_step(3, true, true, true), SettleStep::Idle);
+        // Pass finished, session back, interval elapsed: go again.
+        assert_eq!(settle_step(3, false, true, true), SettleStep::Run);
+        // Not due yet.
+        assert_eq!(settle_step(3, false, true, false), SettleStep::Idle);
+    }
+
+    #[test]
+    fn settle_stops_when_the_run_is_really_over() {
+        // No job running and no session: narrowed to nothing, or reset under us.
+        assert_eq!(settle_step(3, false, false, true), SettleStep::Stop);
+        // Out of passes: idle, whatever else is true.
+        assert_eq!(settle_step(0, false, true, true), SettleStep::Idle);
+        assert_eq!(settle_step(0, false, false, true), SettleStep::Idle);
+    }
 
     #[test]
     fn group_query_ignores_brackets_and_commas() {

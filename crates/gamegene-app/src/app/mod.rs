@@ -8,7 +8,7 @@ use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
-use gamegene_core::scan::{Compare, ScanSession};
+use gamegene_core::scan::{Compare, ResultFilter, ScanSession};
 use gamegene_core::structure::{dissect, infer_fields, Field, StrideOptions};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
@@ -123,6 +123,19 @@ impl ThemeChoice {
     }
 }
 
+/// The value side of the results filter. Sign filters are the common case (a
+/// negative or absurd number is almost always junk rather than the stat you are
+/// hunting), so they get their own entries instead of making the user type a
+/// range every time.
+#[derive(Clone, Copy, PartialEq, Default)]
+enum ValueFilter {
+    #[default]
+    Any,
+    Positive,
+    Negative,
+    Between,
+}
+
 /// How the "Find" box interprets its query.
 #[derive(Clone, Copy, PartialEq)]
 enum FindMode {
@@ -175,6 +188,13 @@ pub struct GameGeneApp {
     /// the next one is due. Zero means the filter isn't running.
     settle_left: u8,
     settle_next: Option<Instant>,
+
+    // Results filter — a view over the candidates, not a narrowing step.
+    filter_addr_min: String,
+    filter_addr_max: String,
+    filter_value: ValueFilter,
+    filter_lo: String,
+    filter_hi: String,
 
     // Cheat table
     table: CheatTable,
@@ -290,6 +310,11 @@ impl GameGeneApp {
             scan_job: None,
             settle_left: 0,
             settle_next: None,
+            filter_addr_min: String::new(),
+            filter_addr_max: String::new(),
+            filter_value: ValueFilter::default(),
+            filter_lo: String::new(),
+            filter_hi: String::new(),
             table: CheatTable::new(),
             entry_counter: 0,
             confirm_clear: false,
