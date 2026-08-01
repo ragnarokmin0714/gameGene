@@ -32,6 +32,71 @@ half is Cheat Engine's *rescan* workflow that distils them down to stable ones.
 - Pure `gamegene-core` logic over the `MemorySource` trait — testable against
   the mock, low risk. Good next-version candidate.
 
+## Name the fields — Mono metadata dissection
+
+Structure dissection currently guesses: detect a stride, infer each column's type
+from the numbers in it. For a Mono/Unity game the real answer is sitting on disk.
+`Assembly-CSharp.dll` is ECMA-335 metadata — class names, field names, field
+types, declaration order — and Mono's instance layout is computable from it. Read
+it and the dissection view stops saying "field at +0x38, looks like Int32" and
+starts saying `PlayerData.gold : ObscuredInt`.
+
+This is the answer to values that cannot be scanned for. An obfuscated value
+(Anti-Cheat Toolkit's `ObscuredInt` stores `hiddenValue ^ currentCryptoKey`)
+never appears in memory in plain form, so no predicate finds it — but its key
+sits in the adjacent field, and knowing the layout hands you both. The principle
+generalizes: when the value is hidden, go after the structure.
+
+### Decision: static metadata, not injection
+
+Three ways to get this, and the choice matters enough to record:
+
+- **A. Inject a DLL and call Mono's own API** — what Cheat Engine does
+  (`MonoDataCollector.dll` + a named pipe, calling `mono_get_root_domain`,
+  `mono_class_get_fields`, `mono_field_get_offset` in-process). Robust, because
+  it uses the runtime's supported entry points. **Rejected**: process injection
+  (`VirtualAllocEx` + `CreateRemoteThread`) is the textbook malware behaviour
+  (ATT&CK T1055). It would take the antivirus story from "occasionally flagged
+  by a static heuristic" — already documented in the README — to "blocked at
+  runtime by Defender's ASR rules", and it puts OS calls at the heart of a
+  feature, against the crate split.
+- **B. Walk Mono's internal structures from outside via `ReadProcessMemory`** —
+  no new AV surface, no injection. **Rejected**: `MonoDomain` / `MonoImage` /
+  `MonoClass` are internal types with no stable ABI. Their layout shifts between
+  Mono and Unity versions, so this means a per-version offset table to maintain
+  forever, for a tool with no telemetry to tell us which versions are in use.
+- **C. Parse the metadata statically, anchor the instance with the scanner** —
+  **chosen.** Reading a file on disk adds *zero* new API calls, so the antivirus
+  picture is unchanged. Parsing is pure logic with no OS calls, so it belongs in
+  `gamegene-core` and is unit-testable against a checked-in fixture assembly with
+  no game running — the property the whole crate split exists to protect.
+
+The half C does not give you is "where is the instance", and that is the half
+GameGene already has: scan for any field you *can* find, use it as an anchor, and
+read the rest through the computed layout. In effect this is not a new feature so
+much as teaching the existing dissection view the real names and types.
+
+**Standing constraint: GameGene does not inject code into the target.** Read,
+write, and (later) debug-register watchpoints are the ceiling. Anything needing
+code to run inside the game is out of scope, whatever it would buy.
+
+### Sharp edges
+
+- **Field layout is the whole difficulty.** Mono's default is auto layout, which
+  may reorder fields — declaration order from the metadata is not the memory
+  order. Alignment, base-class fields coming first, `[StructLayout]` and
+  `[FieldOffset]` overrides, and reference fields being pointer-sized all have to
+  be reproduced exactly; one wrong offset skews the whole record.
+- **Generics** instantiate per type argument and cannot be laid out from the
+  metadata alone. Skipping generic classes in v1 is fine and should be explicit
+  in the UI, not a silent wrong answer.
+- **IL2CPP is a separate, easier path**: offsets are baked into
+  `global-metadata.dat` plus the binary, so no layout rules to reproduce. Worth
+  supporting, but as its own reader — not by pretending the two are one format.
+- Verify against a known value before trusting the view: dissect a struct where
+  one field's value is already known from a scan, and check it lands where the
+  layout predicts.
+
 ## Watchpoints — "find what accesses this address" (flagship)
 
 Cheat Engine's most valuable discovery tool: watch an address and list the
