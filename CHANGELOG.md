@@ -7,6 +7,43 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Drop fluctuating values.** A new button beside *Next scan* narrows the
+  candidate list to addresses that hold still, by running several "unchanged"
+  passes spread over time. It clears out the timers, animation and per-frame
+  scratch that flood the results of an unknown-value scan. A single
+  "unchanged" scan compares two instants only, so a value that happens to
+  match at both survives it; sampling repeatedly is what makes it stick.
+- **Clear the whole cheat table.** A *Clear all* button in the table header,
+  behind a confirmation — wiping hard-won addresses is not undoable.
+
+### Changed
+- **Narrowing modes lead with the relative ones.** After an "unknown initial
+  value" first scan the mode combo now defaults to *Changed* instead of
+  *Exact*, and lists Changed / Unchanged / Increased / Decreased first. The
+  absolute predicates stay available (they filter the snapshot by its current
+  value), just no longer in the way of the step that actually follows an
+  unknown scan.
+- **The memory viewer scrolls by rows.** The wheel over the hex grid now walks
+  the address space one 16-byte row at a time, in either direction, instead of
+  being stuck on a fixed 256-byte page reachable only via ±256. Elsewhere in
+  the window the wheel still scrolls the panel.
+
+### Fixed
+- **Group scan no longer finds a group on one run and misses it on the next.**
+  A value matching more slots than the per-value sweep limit kept whichever
+  matches the worker threads happened to finish first — a different subset
+  every run. The limit now always keeps the same (lowest) matches, the sweep
+  is never cut short, and a value too common to sweep in full is reported in
+  the status line instead of silently returning partial results. Where a
+  value did hit the limit, partners are re-read around the anchor rather than
+  dropped for being above the cut.
+- **Group rescan no longer drops hits near a region edge.** The window around
+  an anchor was read in one call; because `ReadProcessMemory` fails
+  atomically, a window running off the end of a region returned nothing and
+  discarded the hit even though the partner sat right beside the anchor. The
+  window is now read a page at a time.
+
 ## [0.17.1] - 2026-07-23
 
 ### Added

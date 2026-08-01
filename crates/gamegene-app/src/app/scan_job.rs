@@ -128,7 +128,9 @@ impl ScanJob {
 /// so there is no single fraction to report — the UI shows an indeterminate
 /// (animated) bar while this runs.
 pub enum GroupDone {
-    First(Vec<GroupHit>),
+    /// Hits, plus whether a value matched too many slots to sweep in full — the
+    /// results may then be missing groups, so the UI says so.
+    First(Vec<GroupHit>, bool),
     Next(Vec<GroupHit>),
 }
 
@@ -154,8 +156,8 @@ impl GroupJob {
         let (tx, rx) = channel();
         let c = control.clone();
         let handle = std::thread::spawn(move || {
-            let hits = group_scan_with(&*source, &queries, span, max_results, &c);
-            let _ = tx.send(GroupDone::First(hits));
+            let (hits, truncated) = group_scan_with(&*source, &queries, span, max_results, &c);
+            let _ = tx.send(GroupDone::First(hits, truncated));
         });
         GroupJob {
             kind: JobKind::First,

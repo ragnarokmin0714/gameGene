@@ -91,6 +91,42 @@ impl GameGeneApp {
         }
     }
 
+    /// Confirmation for clearing the whole cheat table.
+    pub(super) fn confirm_clear_window(&mut self, ctx: &egui::Context) {
+        if !self.confirm_clear {
+            return;
+        }
+        let tr = self.tr();
+        let count = self.table.entries.len();
+        let mut open = true;
+        let mut do_clear = false;
+        egui::Window::new(tr.clear_all)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(format!("{}{count}", tr.clear_all_confirm));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.clear_all).clicked() {
+                        do_clear = true;
+                    }
+                    if ui.button(tr.cancel_scan).clicked() {
+                        self.confirm_clear = false;
+                    }
+                });
+            });
+
+        if do_clear {
+            self.table.clear();
+            self.confirm_clear = false;
+            self.status = format!("Cleared {count} table entr(y/ies)");
+        } else if !open {
+            self.confirm_clear = false;
+        }
+    }
+
     pub(super) fn table_panel(&mut self, ctx: &egui::Context) {
         egui::SidePanel::right("table")
             .resizable(true)
@@ -106,6 +142,18 @@ impl GameGeneApp {
                     if ui.small_button(tr.load).clicked() {
                         self.load_table();
                     }
+                    // Wiping a table full of hard-won addresses is not undoable,
+                    // so it asks first — and only offers itself when there is
+                    // something to clear.
+                    ui.add_enabled_ui(!self.table.entries.is_empty(), |ui| {
+                        if ui
+                            .small_button(tr.clear_all)
+                            .on_hover_text(tr.clear_all_hint)
+                            .clicked()
+                        {
+                            self.confirm_clear = true;
+                        }
+                    });
                 });
                 ui.label(RichText::new(tr.table_subtitle).weak());
                 ui.separator();

@@ -90,6 +90,13 @@ impl GameGeneApp {
                 return;
             }
         };
+        self.narrow_with(compare);
+    }
+
+    /// Narrow the current session with an explicit predicate, bypassing the mode
+    /// combo. Used by the drop-fluctuating-values filter, which runs its own
+    /// `Unchanged` passes without disturbing what the user has selected.
+    fn narrow_with(&mut self, compare: Compare) {
         let Some(src) = self.source.clone() else {
             self.status = "Run a first scan before narrowing.".into();
             return;
@@ -100,6 +107,44 @@ impl GameGeneApp {
         };
         self.status = "Narrowing…".into();
         self.scan_job = Some(ScanJob::next(src, Box::new(session), compare));
+    }
+
+    /// Start the drop-fluctuating-values filter: several `Unchanged` narrowing
+    /// passes spread over time, which removes candidates that keep moving on
+    /// their own (timers, animation, physics, per-frame scratch) and leaves the
+    /// ones sitting still. A single `Unchanged` scan compares two instants only,
+    /// so a value that happens to be equal at both survives it; sampling
+    /// repeatedly is what makes the filter stick.
+    pub(super) fn start_settle_filter(&mut self) {
+        if self.session.is_none() || self.scan_job.is_some() {
+            return;
+        }
+        self.settle_left = SETTLE_PASSES;
+        self.settle_next = Some(Instant::now());
+    }
+
+    /// Drive the filter: one pass per interval, until the passes run out or the
+    /// session is gone (narrowed to nothing, or reset under it).
+    pub(super) fn tick_settle_filter(&mut self) {
+        if self.settle_left == 0 {
+            return;
+        }
+        if self.session.is_none() {
+            self.settle_left = 0;
+            self.settle_next = None;
+            return;
+        }
+        if self.scan_job.is_some() {
+            return; // a pass is still running
+        }
+        let due = self.settle_next.is_none_or(|t| Instant::now() >= t);
+        if !due {
+            return;
+        }
+        self.settle_left -= 1;
+        self.settle_next = Some(Instant::now() + Duration::from_millis(SETTLE_INTERVAL_MS));
+        self.narrow_with(Compare::Unchanged);
+        self.status = format!("Dropping fluctuating values… {} left", self.settle_left);
     }
 
     /// Poll a running scan; when it finishes, install the result (or discard it
@@ -278,7 +323,7 @@ impl GameGeneApp {
             return;
         }
         match done {
-            GroupDone::First(hits) => {
+            GroupDone::First(hits, truncated) => {
                 self.group_results = hits;
                 // No matches: auto-reset (stay unlocked) so First scan is
                 // immediately usable again, like the value scan.
@@ -288,6 +333,13 @@ impl GameGeneApp {
                 } else {
                     format!("Group scan: {} match(es)", self.group_results.len())
                 };
+                // A value so common it exceeded the per-value sweep limit can
+                // hide real groups; say so rather than let the user rescan a
+                // silently incomplete result.
+                if truncated {
+                    self.status
+                        .push_str(" — a value was too common to sweep fully; use rarer values");
+                }
             }
             GroupDone::Next(hits) => {
                 self.group_results = hits;
@@ -393,10 +445,15 @@ impl GameGeneApp {
                         if ui.button(tr.next_scan).clicked() {
                             self.do_next_scan();
                         }
+                        if ui.button(tr.settle).on_hover_text(tr.settle_hint).clicked() {
+                            self.start_settle_filter();
+                        }
                     });
                     if ui.button(tr.reset).clicked() {
                         self.session = None;
                         self.mode = ScanMode::Exact;
+                        self.settle_left = 0;
+                        self.settle_next = None;
                         self.status = "Scan reset".into();
                     }
                     if let Some(s) = &self.session {

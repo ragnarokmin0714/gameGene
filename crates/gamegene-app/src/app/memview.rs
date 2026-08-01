@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// Bytes per row of the hex grid.
+const HEX_ROW_BYTES: u64 = 16;
+/// Wheel travel (points) that steps the view one row. Roughly one notch on a
+/// mouse wheel; a trackpad's smaller deltas accumulate until they reach it.
+const HEX_SCROLL_STEP: f32 = 20.0;
+
 impl GameGeneApp {
     /// Open the memory viewer focused on `a` (row-aligned, byte selected).
     pub(super) fn open_hex_at(&mut self, a: u64) {
@@ -22,6 +28,7 @@ impl GameGeneApp {
         let mut do_write = None;
         let mut add_addr = None;
         let mut dissect_from = None;
+        let mut grid_rect = None;
 
         // Window sizes persist in egui memory across restarts, so a size saved
         // by an old version (which auto-grew past the viewport) would otherwise
@@ -38,6 +45,35 @@ impl GameGeneApp {
             .max_width(max_size.x)
             .max_height(max_size.y)
             .show(ctx, |ui| {
+                // The wheel means two different things in this window: over the
+                // hex grid it walks the address space a row at a time (the grid
+                // is a viewport onto memory, not a list), everywhere else it
+                // scrolls the panel. Route it by where the pointer is, using the
+                // grid rect drawn last frame, and switch the scroll area off
+                // while it is over the grid so the two never both act. Handled
+                // before the read below, so the grid painted this frame is the
+                // one the wheel just asked for.
+                let over_grid = ctx
+                    .pointer_latest_pos()
+                    .is_some_and(|p| self.hex_grid_rect.is_some_and(|r| r.contains(p)));
+                if over_grid {
+                    self.hex_scroll_accum += ui.input(|i| i.raw_scroll_delta.y);
+                    // Positive delta is a scroll *up*, which reveals lower
+                    // addresses — the row above the current top.
+                    let rows = (self.hex_scroll_accum / HEX_SCROLL_STEP) as i64;
+                    if rows != 0 {
+                        self.hex_scroll_accum -= rows as f32 * HEX_SCROLL_STEP;
+                        let bytes = rows.unsigned_abs() * HEX_ROW_BYTES;
+                        self.hex_addr = if rows > 0 {
+                            self.hex_addr.saturating_sub(bytes)
+                        } else {
+                            self.hex_addr.saturating_add(bytes)
+                        };
+                    }
+                } else {
+                    self.hex_scroll_accum = 0.0;
+                }
+
                 // Windowed read: only the visible 256 bytes, so this is cheap.
                 let mut buf = [0u8; 256];
                 let got = self
@@ -82,6 +118,7 @@ impl GameGeneApp {
                 // easy reach.
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
+                    .enable_scrolling(!over_grid)
                     .show(ui, |ui| {
                         ui.add_space(4.0);
                         if let Some(sel) = self.hex_sel {
@@ -176,7 +213,7 @@ impl GameGeneApp {
                         ui.add_space(2.0);
 
                         // Hex/ASCII grid, in the same scroll area as the inspector.
-                        egui::Grid::new("hexgrid")
+                        let grid = egui::Grid::new("hexgrid")
                             .spacing([3.0, 2.0])
                             .show(ui, |ui| {
                                 for row in 0..16usize {
@@ -214,9 +251,14 @@ impl GameGeneApp {
                                     ui.end_row();
                                 }
                             });
+                        grid_rect = Some(grid.response.rect);
                     });
             });
 
+        // Remember where the grid landed, for next frame's wheel routing. A
+        // closed or scrolled-away grid clears it, so the wheel goes back to
+        // scrolling the panel.
+        self.hex_grid_rect = grid_rect;
         if let Some(a) = new_sel {
             self.hex_sel = Some(a);
         }

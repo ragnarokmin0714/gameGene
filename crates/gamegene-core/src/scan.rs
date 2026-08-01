@@ -363,8 +363,10 @@ where
                 off += got as u64;
             }
             // Publish this item's new results to the shared tally and stop
-            // everyone once the cap is reached.
-            let delta = local.len() - counted;
+            // everyone once the cap is reached. `saturating_sub` because an
+            // `emit` may bound its own local list (see
+            // [`collect_addresses_with`]), shrinking it below the last tally.
+            let delta = local.len().saturating_sub(counted);
             counted = local.len();
             if count.fetch_add(delta, AtomicOrdering::Relaxed) + delta >= cap {
                 truncated.store(true, AtomicOrdering::Relaxed);
@@ -570,14 +572,22 @@ fn slot_count(len: usize, size: usize) -> usize {
     }
 }
 
-/// Collect up to `cap` addresses of aligned slots matching `compare` — the
-/// per-value search behind the group scan. Runs the same parallel, specialized
-/// walk as the first scan, capped because a loose predicate (a float range) can
-/// match millions of slots.
-/// Collect up to `cap` addresses of aligned slots matching `compare`, honoring
-/// a [`ScanControl`] (for a cancellable group scan on a background thread).
-/// `set_total` controls whether this sweep owns the progress total — false when
-/// a group scan aggregates the total across several sweeps.
+/// Collect the `cap` lowest addresses of aligned slots matching `compare` — the
+/// per-value search behind the group scan — plus whether more than `cap` slots
+/// matched. Honors a [`ScanControl`] (for a cancellable group scan on a
+/// background thread). `set_total` controls whether this sweep owns the progress
+/// total — false when a group scan aggregates the total across several sweeps.
+///
+/// The cap is applied *deterministically*: every work item is always swept and
+/// the globally lowest `cap` addresses are kept, so two identical scans return
+/// identical lists. Letting [`parallel_collect`]'s own cap stop the sweep would
+/// instead keep whichever subset the threads happened to finish first, which
+/// makes a group scan over a common value (an item count, a small level number)
+/// find the group on one run and miss it on the next.
+///
+/// Memory stays bounded because a thread only ever needs the `cap` lowest
+/// addresses *it* has seen: the global lowest `cap` is always a subset of the
+/// union of the per-thread lowest `cap`.
 pub(crate) fn collect_addresses_with(
     source: &dyn MemorySource,
     vt: ValueType,
@@ -585,12 +595,26 @@ pub(crate) fn collect_addresses_with(
     cap: usize,
     control: &ScanControl,
     set_total: bool,
-) -> Vec<u64> {
-    let (mut addrs, _) = parallel_collect(source, control, cap, set_total, |buf, addr, out| {
-        for_each_match(vt, compare, buf, None, |i| out.push(addr + i as u64));
-    });
+) -> (Vec<u64>, bool) {
+    let total = AtomicUsize::new(0);
+    // usize::MAX disables parallel_collect's own (order-dependent) cap; the
+    // bounding below replaces it.
+    let (mut addrs, _) =
+        parallel_collect(source, control, usize::MAX, set_total, |buf, addr, out| {
+            let before = out.len();
+            for_each_match(vt, compare, buf, None, |i| out.push(addr + i as u64));
+            total.fetch_add(out.len() - before, AtomicOrdering::Relaxed);
+            // Amortized: only re-sort once the local list has grown to twice
+            // the cap, so the common (uncapped) case never sorts at all.
+            if out.len() > cap.saturating_mul(2) {
+                out.sort_unstable();
+                out.truncate(cap);
+            }
+        });
     addrs.sort_unstable();
-    addrs
+    let truncated = total.load(AtomicOrdering::Relaxed) > cap;
+    addrs.truncate(cap);
+    (addrs, truncated)
 }
 
 /// First scan for `Unknown`: capture readable regions as contiguous byte runs.
@@ -756,4 +780,64 @@ fn read_contiguous(source: &dyn MemorySource, base: u64, buf: &mut [u8]) -> usiz
         }
     }
     filled
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::MockMemory;
+
+    /// The per-value cap of a group scan must keep a *fixed* subset — the lowest
+    /// matching addresses — not whichever ones the worker threads finished
+    /// first. An order-dependent cap made a group scan over a common value find
+    /// the group on one run and miss it on the next.
+    #[test]
+    fn capped_collect_is_deterministic_and_reports_truncation() {
+        let base = 0x10_000u64;
+        let mem = MockMemory::new(base, 64 * 1024);
+        // Every i32 slot is zero, so the whole region matches: far more than the
+        // cap, which forces the truncation path.
+        let slots = (64 * 1024 / 4) as u64;
+        let cap = 100;
+        let zero = Compare::Exact(ScanValue::I32(0));
+
+        let (first, truncated) =
+            collect_addresses_with(&mem, ValueType::I32, zero, cap, &ScanControl::new(), true);
+        assert!(
+            truncated,
+            "{slots} matches over a cap of {cap} must truncate"
+        );
+        assert_eq!(first.len(), cap);
+        // Exactly the lowest `cap` slots, in address order.
+        let expected: Vec<u64> = (0..cap as u64).map(|i| base + i * 4).collect();
+        assert_eq!(first, expected);
+
+        // Identical inputs, identical output — the property that was broken.
+        for _ in 0..4 {
+            let (again, t) =
+                collect_addresses_with(&mem, ValueType::I32, zero, cap, &ScanControl::new(), true);
+            assert!(t);
+            assert_eq!(again, first);
+        }
+    }
+
+    /// Below the cap nothing is dropped and truncation is not reported.
+    #[test]
+    fn uncapped_collect_keeps_every_match() {
+        let base = 0x20_000u64;
+        let mem = MockMemory::new(base, 4096);
+        for off in [0x10u64, 0x40, 0x800] {
+            mem.poke(base + off, &7i32.to_le_bytes());
+        }
+        let (addrs, truncated) = collect_addresses_with(
+            &mem,
+            ValueType::I32,
+            Compare::Exact(ScanValue::I32(7)),
+            1000,
+            &ScanControl::new(),
+            true,
+        );
+        assert!(!truncated);
+        assert_eq!(addrs, vec![base + 0x10, base + 0x40, base + 0x800]);
+    }
 }

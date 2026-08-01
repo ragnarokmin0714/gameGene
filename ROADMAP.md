@@ -17,7 +17,9 @@ array, with preview, count cap, and undo. Remaining niceties:
 
 - In-grid byte editing (type over a cell), not only the write box.
 - Highlight values that are valid pointers; "follow pointer" to jump there.
-- Scrollable / resizable window beyond the fixed 256-byte page.
+- Show more than 16 rows at once on a tall window. The wheel now walks the
+  address space by rows, so navigation is no longer page-bound; what remains
+  is making the *number of visible rows* follow the window height.
 
 ## Pointer scanning — revalidate across restarts
 

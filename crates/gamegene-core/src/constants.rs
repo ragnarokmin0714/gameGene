@@ -48,6 +48,16 @@ pub const SCAN_WORK_ITEM: u64 = 16 * 1024 * 1024;
 /// How often (milliseconds) frozen table entries are re-written to memory.
 pub const FREEZE_INTERVAL_MS: u64 = 100;
 
+/// How many "unchanged" narrowing passes the drop-fluctuating-values filter
+/// runs, and how long it waits between them. Sampling the candidates across
+/// several instants (rather than the two a single "unchanged" scan compares)
+/// is what separates a value that merely happened to be equal twice from one
+/// that is genuinely at rest.
+pub const SETTLE_PASSES: u8 = 4;
+/// Milliseconds between the filter's passes — long enough that an animating or
+/// per-frame-recomputed value is caught changing at least once.
+pub const SETTLE_INTERVAL_MS: u64 = 250;
+
 /// On-disk format version for cheat tables. Bump when the schema changes so
 /// older files can be migrated or rejected with a clear message.
 pub const TABLE_FORMAT_VERSION: u32 = 1;

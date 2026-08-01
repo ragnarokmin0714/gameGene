@@ -74,27 +74,35 @@ pub struct GroupHit {
 /// Find up to `max_results` addresses of `queries[0]` that have every other
 /// query within `span` bytes. With a single query this is just a plain search.
 /// Matches are aligned to each query's value size (game struct fields are).
+///
+/// Drops the "some value was too common to sweep fully" flag; use
+/// [`group_scan_with`] when that needs reporting.
 pub fn group_scan(
     src: &dyn MemorySource,
     queries: &[GroupQuery],
     span: u64,
     max_results: usize,
 ) -> Vec<GroupHit> {
-    group_scan_with(src, queries, span, max_results, &ScanControl::new())
+    group_scan_with(src, queries, span, max_results, &ScanControl::new()).0
 }
 
 /// [`group_scan`] honoring a [`ScanControl`], so it can run on a background
 /// thread and be cancelled. Each value is a full memory sweep, so the progress
 /// total is set to `values × bytes` up front and the bar fills across them all.
+///
+/// The second return value is true when at least one value matched more than
+/// [`PER_VALUE_CAP`] slots, so only its lowest matches were correlated and the
+/// result may be incomplete — worth telling the user, since the fix is to pick
+/// a more specific value rather than to rescan and hope.
 pub fn group_scan_with(
     src: &dyn MemorySource,
     queries: &[GroupQuery],
     span: u64,
     max_results: usize,
     control: &ScanControl,
-) -> Vec<GroupHit> {
+) -> (Vec<GroupHit>, bool) {
     if queries.is_empty() || max_results == 0 {
-        return Vec::new();
+        return (Vec::new(), false);
     }
 
     // One aggregate progress total across every value's sweep.
@@ -102,11 +110,12 @@ pub fn group_scan_with(
     control.set_total(bytes * queries.len() as u64);
 
     let mut lists: Vec<Vec<u64>> = Vec::with_capacity(queries.len());
+    let mut capped: Vec<bool> = Vec::with_capacity(queries.len());
     for q in queries {
         if control.is_cancelled() {
-            return Vec::new();
+            return (Vec::new(), false);
         }
-        let mut hits = collect_addresses_with(
+        let (hits, truncated) = collect_addresses_with(
             src,
             q.value_type(),
             q.compare(),
@@ -114,12 +123,14 @@ pub fn group_scan_with(
             control,
             false, // group owns the aggregate total set above
         );
-        hits.sort_unstable();
         lists.push(hits);
+        capped.push(truncated);
     }
+    let truncated = capped.iter().any(|&t| t);
 
     let anchors = std::mem::take(&mut lists[0]);
     let others = &lists[1..];
+    let others_capped = &capped[1..];
 
     let mut out = Vec::new();
     let mut claimed = Vec::new(); // addresses used by this anchor's hit
@@ -131,8 +142,18 @@ pub fn group_scan_with(
         claimed.push(a);
         let matched: Option<Vec<u64>> = others
             .iter()
-            .map(|list| {
-                let hit = nearest_within(list, a, span, &claimed)?;
+            .zip(others_capped)
+            .zip(&queries[1..])
+            .map(|((list, &list_capped), q)| {
+                // A capped list holds only the lowest matches, so a partner
+                // above the cut is missing from it even though it is sitting
+                // right next to the anchor. Re-read around the anchor rather
+                // than dropping a real group over a sweep limit.
+                let hit = match nearest_within(list, a, span, &claimed) {
+                    Some(hit) => hit,
+                    None if list_capped => find_near(src, a, span, q, &claimed)?,
+                    None => return None,
+                };
                 claimed.push(hit);
                 Some(hit)
             })
@@ -144,7 +165,7 @@ pub fn group_scan_with(
             }
         }
     }
-    out
+    (out, truncated)
 }
 
 /// Narrow previous hits with a fresh set of queries ("next group scan"): a hit
@@ -189,10 +210,19 @@ pub fn group_rescan(
         .collect()
 }
 
+/// One OS page. The search window is read a page at a time so that a single
+/// unreadable page costs one page of the window instead of all of it.
+const PAGE: u64 = 4096;
+
 /// Nearest address within `span` of `anchor` holding `q`, size-aligned and not
 /// already `claimed`. Re-read fresh each rescan, so a hit survives as long as
 /// the value is *somewhere* near the anchor — not tied to whichever occurrence
 /// the first scan happened to record.
+///
+/// Reads stop at every page boundary. `ReadProcessMemory` fails *atomically*, so
+/// one window-sized read that happens to run off the end of the region returns
+/// nothing at all — which silently dropped every hit anchored near a region
+/// edge, and looked like the group scan intermittently losing results.
 fn find_near(
     src: &dyn MemorySource,
     anchor: u64,
@@ -204,23 +234,32 @@ fn find_near(
     // Window [anchor-span, anchor+span], aligned down to the value size so every
     // stepped address is size-aligned (game struct fields are).
     let start = anchor.saturating_sub(span) & !(size - 1);
-    let mut buf = vec![0u8; (span * 2 + size) as usize];
-    let got = src.read(start, &mut buf).unwrap_or(0);
-    let buf = &buf[..got];
+    let end = anchor.saturating_add(span).saturating_add(size);
 
     let sz = size as usize;
+    let mut buf = vec![0u8; PAGE as usize];
     let mut best: Option<u64> = None;
-    let mut off = 0usize;
-    while off + sz <= buf.len() {
-        let addr = start + off as u64;
-        if addr.abs_diff(anchor) <= span
-            && !claimed.contains(&addr)
-            && q.holds_bytes(&buf[off..off + sz])
-            && best.is_none_or(|b| addr.abs_diff(anchor) < b.abs_diff(anchor))
-        {
-            best = Some(addr);
+    let mut addr = start;
+    while addr < end {
+        // Never span a page boundary. `start` is size-aligned and a page is a
+        // multiple of every value size, so each block length is a whole number
+        // of slots and no value straddles two blocks.
+        let stop = ((addr & !(PAGE - 1)) + PAGE).min(end);
+        let len = (stop - addr) as usize;
+        let got = src.read(addr, &mut buf[..len]).unwrap_or(0);
+        let mut off = 0usize;
+        while off + sz <= got {
+            let at = addr + off as u64;
+            if at.abs_diff(anchor) <= span
+                && !claimed.contains(&at)
+                && q.holds_bytes(&buf[off..off + sz])
+                && best.is_none_or(|b| at.abs_diff(anchor) < b.abs_diff(anchor))
+            {
+                best = Some(at);
+            }
+            off += sz;
         }
-        off += sz;
+        addr = stop;
     }
     best
 }
@@ -410,6 +449,33 @@ mod tests {
         let narrowed = group_rescan(&mem, &hits, &[exact(21), exact(20)], 64);
         assert_eq!(anchors(&narrowed), vec![base + 0x300]);
         assert_eq!(narrowed[0].others, vec![base + 0x304]);
+    }
+
+    #[test]
+    fn rescan_survives_an_anchor_near_the_region_edge() {
+        // The search window around an anchor close to the start of a region runs
+        // off the front of it. Reading the whole window in one go fails
+        // atomically there, which used to drop the hit even though the partner
+        // sits right next to the anchor.
+        let base = 0xB0_000u64;
+        let mem = MockMemory::new(base, 0x1000);
+        let anchor = base + 0x10; // well inside `span` of the region start
+        mem.poke(anchor, &42i32.to_le_bytes());
+        mem.poke(anchor + 8, &7i32.to_le_bytes());
+
+        let queries = [exact(42), exact(7)];
+        let span = 512;
+        let hits = group_scan(&mem, &queries, span, 100);
+        assert_eq!(anchors(&hits), vec![anchor]);
+
+        let narrowed = group_rescan(&mem, &hits, &queries, span);
+        assert_eq!(
+            anchors(&narrowed),
+            vec![anchor],
+            "the partner is 8 bytes away; an unreadable page before the region \
+             must not discard the whole window"
+        );
+        assert_eq!(narrowed[0].others, vec![anchor + 8]);
     }
 
     #[test]

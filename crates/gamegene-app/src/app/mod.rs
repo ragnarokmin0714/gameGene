@@ -2,7 +2,7 @@
 //! cheat table of found values.
 
 use eframe::egui::{self, Key, RichText};
-use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS};
+use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS, SETTLE_INTERVAL_MS, SETTLE_PASSES};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
 use gamegene_core::group::{GroupHit, GroupQuery};
@@ -55,15 +55,20 @@ impl ScanMode {
         ScanMode::Between,
         ScanMode::Unknown,
     ];
+    /// Narrowing modes, relative ones first. `Unknown` is gone (the snapshot is
+    /// already taken), so the mode carried over from an unknown first scan falls
+    /// back to `NEXT[0]` — which is why `Changed` leads: after "unknown initial
+    /// value" the useful next step is always a relative comparison, never a
+    /// value you would have typed into the first scan.
     const NEXT: [ScanMode; 8] = [
-        ScanMode::Exact,
-        ScanMode::GreaterThan,
-        ScanMode::LessThan,
-        ScanMode::Between,
         ScanMode::Changed,
         ScanMode::Unchanged,
         ScanMode::Increased,
         ScanMode::Decreased,
+        ScanMode::Exact,
+        ScanMode::GreaterThan,
+        ScanMode::LessThan,
+        ScanMode::Between,
     ];
 
     fn label(self, tr: &i18n::Tr) -> &'static str {
@@ -166,10 +171,16 @@ pub struct GameGeneApp {
     /// A scan running on a background thread, if any. While set, the scan
     /// controls show a progress bar and a cancel button instead.
     scan_job: Option<ScanJob>,
+    /// Narrowing passes the drop-fluctuating-values filter still owes, and when
+    /// the next one is due. Zero means the filter isn't running.
+    settle_left: u8,
+    settle_next: Option<Instant>,
 
     // Cheat table
     table: CheatTable,
     entry_counter: u32,
+    /// Whether the "clear the whole table" confirmation is showing.
+    confirm_clear: bool,
 
     // Find (byte / text search)
     find_query: String,
@@ -203,6 +214,12 @@ pub struct GameGeneApp {
     hex_write_text: String,
     /// Show every interpreted type in the memory viewer, not just the common few.
     hex_more: bool,
+    /// Screen rect of the hex grid as drawn last frame, so a wheel event over it
+    /// can be routed to address stepping instead of to the scroll area.
+    hex_grid_rect: Option<egui::Rect>,
+    /// Leftover wheel travel not yet worth a whole row, so a trackpad's fine
+    /// scrolling accumulates instead of being rounded away every frame.
+    hex_scroll_accum: f32,
 
     // Structure / array dissection
     show_struct: bool,
@@ -271,8 +288,11 @@ impl GameGeneApp {
             value2_text: String::new(),
             session: None,
             scan_job: None,
+            settle_left: 0,
+            settle_next: None,
             table: CheatTable::new(),
             entry_counter: 0,
+            confirm_clear: false,
             find_query: String::new(),
             find_mode: FindMode::Text,
             find_results: Vec::new(),
@@ -291,6 +311,8 @@ impl GameGeneApp {
             hex_write_type: ValueType::I32,
             hex_write_text: String::new(),
             hex_more: false,
+            hex_grid_rect: None,
+            hex_scroll_accum: 0.0,
             show_struct: false,
             struct_base: 0,
             struct_base_input: String::new(),
@@ -367,6 +389,7 @@ impl eframe::App for GameGeneApp {
         // cancel). Kept before drawing so this frame shows the outcome.
         self.poll_scan_job();
         self.poll_group_job();
+        self.tick_settle_filter();
 
         self.handle_shortcuts(ctx);
 
@@ -377,6 +400,7 @@ impl eframe::App for GameGeneApp {
         self.hex_window(ctx);
         self.struct_window(ctx);
         self.confirm_add_window(ctx);
+        self.confirm_clear_window(ctx);
         self.settings_window(ctx);
     }
 

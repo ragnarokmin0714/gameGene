@@ -206,6 +206,13 @@ impl CheatTable {
         self.entries.len() != before
     }
 
+    /// Drop every entry. `next_id` keeps counting up, so ids are never reused by
+    /// entries added after a clear (a stale id can then never resolve to a new
+    /// entry).
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     pub fn get_mut(&mut self, id: u64) -> Option<&mut TableEntry> {
         self.entries.iter_mut().find(|e| e.id == id)
     }
