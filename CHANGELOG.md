@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-01
+
 ### Added
 - **Drop fluctuating values.** A new button beside *Next scan* narrows the
   candidate list to addresses that hold still, by running several "unchanged"
