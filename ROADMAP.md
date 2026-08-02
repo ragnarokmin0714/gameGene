@@ -196,3 +196,47 @@ save editor that knows any particular game.
 
 - Finalize the logo (candidates under `assets/options/`) and wire the chosen
   mark into the window icon and README.
+
+## Non-goals
+
+Things GameGene is deliberately not going to be. Recorded so the question does
+not get reopened once per feature.
+
+### Not a mod loader (no BepInEx / MelonLoader equivalent)
+
+A runtime inspector — browse the live scene graph, edit fields by reflection,
+call methods, click the debug panel the developer left in the build — is real
+value that GameGene will not deliver, because every bit of it requires **code
+running inside the game**:
+
+- BepInEx gets in via Unity Doorstop: a native DLL beside the executable that
+  the loader picks up by DLL search order, hooking `mono_jit_init_version` to
+  load a managed assembly into the runtime. It is not remote injection
+  (`CreateRemoteThread`), but DLL search-order hijacking (ATT&CK T1574.001) is
+  just as hostile to antivirus heuristics, and it means writing files into the
+  game's install directory.
+- The inspector itself is a C# plugin. Building one means a second language and
+  toolchain in a Rust project.
+- It only attaches at launch. GameGene's attach-to-a-running-game model would
+  not survive it.
+
+The hard boundary this draws: **calling a method in the target is permanently
+out of scope.** Reading and writing its memory is not.
+
+Halfway is still worth having, and is on this list already — see *Name the
+fields*, which gives field names and real types over plain RPM/WPM, no
+injection. That covers the data half of what an inspector does.
+
+BepInEx is mature, is the community standard, and is complementary rather than
+competing: it needs a readable `Assembly-CSharp.dll`, so it covers Mono games
+and nothing else. GameGene's ground is native C++ targets, IL2CPP, and
+emulators — exactly where a mod loader has nothing to offer. Reimplementing it
+would trade that ground for a weaker copy of someone else's tool.
+
+### Not an anti-cheat bypass
+
+Single-player, unprotected games only, as the README already states. Defeating
+kernel-mode anti-cheat, anti-tamper, or anti-debug protection is not a feature
+gap to be closed — it is outside what this tool is for, and the reason the
+watchpoint entry accepts tripping those protections rather than working around
+them.
