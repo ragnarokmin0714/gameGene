@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-06
+
 ### Added
 - **Search hits show what is there.** The Find results list gains a preview of
   the bytes at each match, decoded in whatever was searched for (UTF-8, UTF-16,
