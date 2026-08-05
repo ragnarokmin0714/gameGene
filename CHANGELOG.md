@@ -7,6 +7,22 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Find is a tab, beside value scan and group scan.** It was folded away in a
+  collapsing header under the value scan, which read as an accessory to
+  scanning; it is a way of locating something and is used on its own.
+- **Pin a search hit open.** Clicking a hit reads a wide window around it and
+  holds the decoded text in a scrollable, selectable pane above the list. A
+  hover tooltip vanishes the moment the pointer moves toward it — fine for a
+  glance, useless for reading a structure or copying anything out of it. The
+  pane also carries the buttons to open the address in the memory viewer or
+  add it to the table, closing a gap where a search hit could only be reached
+  via the cheat table.
+- **Arrow keys move the selected byte in the memory viewer.** Left/right by a
+  byte, up/down by a row, PageUp/PageDown by a screen, scrolling the window
+  when the selection would leave it. Ignored while a text field has focus, so
+  typing an address never also walks the grid.
+
 ## [0.19.0] - 2026-08-06
 
 ### Added

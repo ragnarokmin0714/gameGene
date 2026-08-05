@@ -72,7 +72,6 @@ pub(super) static ZH: Tr = Tr {
     pin: "固定",
     pin_hint: "尋找指標路徑，讓此項目在遊戲重開後仍然有效",
 
-    find_title: "搜尋位元組 / 文字",
     find_search: "搜尋",
     find_hint: "文字，或十六進位如 4A ?? 3C 90",
     find_text: "文字",
@@ -89,6 +88,9 @@ pub(super) static ZH: Tr = Tr {
 
     tab_value: "單值掃描",
     tab_group: "群組掃描",
+    tab_find: "搜尋",
+    find_row_hint: "點一下命中項，把它周圍的內容釘在上方 —— 可選取、可複製。",
+    find_refresh: "重讀",
     group_hint: "輸入這些值「目前」的數值 — 首次掃描會找出它們彼此靠在一起的位置,並列出第一個值的位址。想縮小範圍:先在遊戲裡改變數值,輸入新的一組數字,再按「再次掃描」。偏移欄會顯示其他值的相對位置;在結果上按右鍵可在記憶體檢視器開啟。",
     group_values_hint: "多個值,如 100 50 12",
     group_span: "範圍(bytes)",

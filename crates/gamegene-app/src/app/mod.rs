@@ -153,6 +153,10 @@ enum ScanTab {
     #[default]
     Value,
     Group,
+    /// Byte / text search. A peer of the other two rather than a fold-out under
+    /// the value scan: it is a way of *locating* something, used on its own,
+    /// and burying it made it look like an accessory to scanning.
+    Find,
 }
 
 /// The slice of state saved between runs (via eframe's storage).
@@ -223,6 +227,15 @@ pub struct GameGeneApp {
     /// per frame would be thousands of syscalls a second for a list that only
     /// ever shows a screenful.
     find_results: Vec<(u64, String)>,
+    /// How the last search's hits are decoded, so a pinned hit reads the same
+    /// way its row did.
+    find_style: PreviewStyle,
+    /// The hit whose surroundings are pinned open below the list, and the text
+    /// read there. Pinned because a hover tooltip vanishes the moment the
+    /// pointer moves toward it — unreadable for anything longer than a glance,
+    /// and impossible to copy from.
+    find_pinned: Option<u64>,
+    find_pinned_text: String,
 
     // Which scan tab is active (single value vs. group of values)
     scan_tab: ScanTab,
@@ -339,6 +352,9 @@ impl GameGeneApp {
             find_query: String::new(),
             find_mode: FindMode::Text,
             find_results: Vec::new(),
+            find_style: PreviewStyle::Text(TextEncoding::Utf8),
+            find_pinned: None,
+            find_pinned_text: String::new(),
             scan_tab: ScanTab::default(),
             group_query: String::new(),
             group_span: 512,
@@ -518,6 +534,12 @@ fn read_value(src: &dyn MemorySource, addr: u64, ty: ValueType) -> Option<ScanVa
 /// the binding one there.
 const PREVIEW_BYTES: usize = 192;
 const PREVIEW_CHARS: usize = 96;
+
+/// A pinned hit reads a much wider window than a row preview: the point of
+/// pinning is to read a structure (a JSON object, a string table) rather than
+/// identify it.
+const DETAIL_BYTES: usize = 2048;
+const DETAIL_CHARS: usize = 1024;
 
 /// Read up to `want` bytes at `addr` for a preview, halving on failure.
 ///

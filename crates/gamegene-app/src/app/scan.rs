@@ -96,6 +96,17 @@ impl GameGeneApp {
         self.narrow_with(compare);
     }
 
+    /// Pin a search hit open below the list: read a wide window around it and
+    /// decode it the way the search did, so it can be read at length and copied.
+    fn pin_find_hit(&mut self, addr: u64) {
+        let Some(src) = self.source.as_deref() else {
+            return;
+        };
+        let bytes = read_context(src, addr, DETAIL_BYTES);
+        self.find_pinned_text = preview(&bytes, self.find_style, DETAIL_CHARS);
+        self.find_pinned = Some(addr);
+    }
+
     /// The type the results list renders — and the type an entry added from it
     /// gets, so the cheat table's set-value box takes the number you can read
     /// (`3000`) and writes the bytes the game wants (`3000.0f`).
@@ -349,6 +360,11 @@ impl GameGeneApp {
         };
         let hits = find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
         self.status = format!("Found {} match(es)", hits.len());
+        self.find_style = style;
+        // The old pin points into the previous search's results; keeping it open
+        // would show text unrelated to what is now listed.
+        self.find_pinned = None;
+        self.find_pinned_text.clear();
         self.find_results = hits
             .into_iter()
             .map(|addr| {
@@ -482,14 +498,22 @@ impl GameGeneApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.scan_tab, ScanTab::Value, tr.tab_value);
                 ui.selectable_value(&mut self.scan_tab, ScanTab::Group, tr.tab_group);
+                ui.selectable_value(&mut self.scan_tab, ScanTab::Find, tr.tab_find);
             });
             ui.separator();
 
-            // Group scan lives on its own tab; single-value scan below is
-            // unchanged.
-            if self.scan_tab == ScanTab::Group {
-                self.group_tab(ui);
-                return;
+            // Each search kind owns a tab; the single-value scan is the body of
+            // this function.
+            match self.scan_tab {
+                ScanTab::Group => {
+                    self.group_tab(ui);
+                    return;
+                }
+                ScanTab::Find => {
+                    self.find_tab(ui);
+                    return;
+                }
+                ScanTab::Value => {}
             }
 
             ui.horizontal(|ui| {
@@ -587,69 +611,6 @@ impl GameGeneApp {
                 });
             }
 
-            // Find bytes / text — a locate tool (collapsed by default).
-            let mut do_find = false;
-            let mut find_add = None;
-            egui::CollapsingHeader::new(tr.find_title).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_source("findmode")
-                        .selected_text(match self.find_mode {
-                            FindMode::Text => tr.find_text,
-                            FindMode::Utf16 => tr.find_utf16,
-                            FindMode::Aob => tr.find_aob,
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.find_mode, FindMode::Text, tr.find_text);
-                            ui.selectable_value(
-                                &mut self.find_mode,
-                                FindMode::Utf16,
-                                tr.find_utf16,
-                            );
-                            ui.selectable_value(&mut self.find_mode, FindMode::Aob, tr.find_aob);
-                        });
-                    let resp =
-                        ui.add(control_edit(&mut self.find_query, 180.0).hint_text(tr.find_hint));
-                    let entered =
-                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if ui.button(tr.find_search).clicked() || entered {
-                        do_find = true;
-                    }
-                });
-                egui::ScrollArea::vertical()
-                    .id_source("find_results")
-                    .max_height(140.0)
-                    .show(ui, |ui| {
-                        egui::Grid::new("find_grid")
-                            .num_columns(3)
-                            .striped(true)
-                            .show(ui, |ui| {
-                                for (addr, text) in &self.find_results {
-                                    ui.monospace(format!("{addr:#014x}"));
-                                    // Fixed width, truncated, full text on
-                                    // hover — the same treatment as every other
-                                    // live-value cell, so a long line cannot
-                                    // widen the panel.
-                                    ui.add_sized(
-                                        [260.0, ui.spacing().interact_size.y],
-                                        egui::Label::new(RichText::new(text).monospace())
-                                            .truncate(),
-                                    )
-                                    .on_hover_text(text);
-                                    if ui.small_button(tr.add_table).clicked() {
-                                        find_add = Some(*addr);
-                                    }
-                                    ui.end_row();
-                                }
-                            });
-                    });
-            });
-            if do_find {
-                self.do_find();
-            }
-            if let Some(addr) = find_add {
-                self.add_to_table(addr, self.value_type);
-            }
-
             ui.separator();
             ui.horizontal(|ui| {
                 ui.strong(tr.results);
@@ -713,6 +674,129 @@ impl GameGeneApp {
                 self.open_hex_at(a);
             }
         });
+    }
+
+    /// The "find" tab: locate a byte signature or a piece of text, list the
+    /// hits with a decoded preview, and pin one open to read it in full.
+    fn find_tab(&mut self, ui: &mut egui::Ui) {
+        let tr = self.tr();
+        let mut do_find = false;
+        let mut find_add = None;
+        let mut goto_addr = None;
+        let mut pin_addr = None;
+        let mut unpin = false;
+
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_source("findmode")
+                .selected_text(match self.find_mode {
+                    FindMode::Text => tr.find_text,
+                    FindMode::Utf16 => tr.find_utf16,
+                    FindMode::Aob => tr.find_aob,
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.find_mode, FindMode::Text, tr.find_text);
+                    ui.selectable_value(&mut self.find_mode, FindMode::Utf16, tr.find_utf16);
+                    ui.selectable_value(&mut self.find_mode, FindMode::Aob, tr.find_aob);
+                });
+            let resp = ui.add(control_edit(&mut self.find_query, 220.0).hint_text(tr.find_hint));
+            let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if ui.button(tr.find_search).clicked() || entered {
+                do_find = true;
+            }
+            if !self.find_results.is_empty() {
+                ui.label(
+                    RichText::new(format!("{} {}", self.find_results.len(), tr.matches)).weak(),
+                );
+            }
+        });
+        ui.label(RichText::new(tr.find_row_hint).weak());
+        ui.separator();
+
+        // The pinned pane is above the list and fixed in height, so picking
+        // through hits does not make the text you are reading jump around.
+        if let Some(addr) = self.find_pinned {
+            ui.horizontal(|ui| {
+                ui.monospace(
+                    RichText::new(format!("{addr:#014X}"))
+                        .color(egui::Color32::from_rgb(0, 122, 255)),
+                );
+                if ui.small_button(tr.mem_view).clicked() {
+                    goto_addr = Some(addr);
+                }
+                if ui.small_button(tr.add_table).clicked() {
+                    find_add = Some(addr);
+                }
+                if ui.small_button(tr.find_refresh).clicked() {
+                    pin_addr = Some(addr); // re-read: the bytes may have changed
+                }
+                if ui.small_button("×").clicked() {
+                    unpin = true;
+                }
+            });
+            egui::ScrollArea::vertical()
+                .id_source("find_detail")
+                .max_height(150.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    // Selectable so it can be copied out — the whole reason a
+                    // hover tooltip was not enough.
+                    ui.add(
+                        egui::Label::new(RichText::new(&self.find_pinned_text).monospace())
+                            .selectable(true)
+                            .wrap(),
+                    );
+                });
+            ui.separator();
+        }
+
+        egui::ScrollArea::vertical()
+            .id_source("find_results")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("find_grid")
+                    .num_columns(3)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (addr, text) in &self.find_results {
+                            let selected = self.find_pinned == Some(*addr);
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(format!("{addr:#014x}")).monospace(),
+                                )
+                                .on_hover_text(tr.find_row_hint)
+                                .clicked()
+                            {
+                                pin_addr = Some(*addr);
+                            }
+                            ui.add_sized(
+                                [300.0, ui.spacing().interact_size.y],
+                                egui::Label::new(RichText::new(text).monospace()).truncate(),
+                            );
+                            if ui.small_button(tr.add_table).clicked() {
+                                find_add = Some(*addr);
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+
+        if do_find {
+            self.do_find();
+        }
+        if let Some(addr) = pin_addr {
+            self.pin_find_hit(addr);
+        }
+        if unpin {
+            self.find_pinned = None;
+            self.find_pinned_text.clear();
+        }
+        if let Some(addr) = find_add {
+            self.add_to_table(addr, self.display_type());
+        }
+        if let Some(addr) = goto_addr {
+            self.open_hex_at(addr);
+        }
     }
 
     /// The "group scan" tab: pick the type, enter several values, and search for

@@ -4,6 +4,8 @@ use super::*;
 
 /// Bytes per row of the hex grid.
 const HEX_ROW_BYTES: u64 = 16;
+/// Bytes the grid shows at once (16 rows).
+const HEX_PAGE_BYTES: u64 = HEX_ROW_BYTES * 16;
 /// Wheel travel (points) that steps the view one row. Roughly one notch on a
 /// mouse wheel; a trackpad's smaller deltas accumulate until they reach it.
 const HEX_SCROLL_STEP: f32 = 20.0;
@@ -18,10 +20,64 @@ impl GameGeneApp {
         self.hex_addr_input = format!("{a:X}");
     }
 
+    /// Move the selected byte with the arrow keys, scrolling the window when the
+    /// selection would leave it.
+    ///
+    /// Skipped while a text field has focus (`wants_keyboard_input`) or a
+    /// shortcut is being re-bound, so typing an address never also walks the
+    /// grid.
+    fn hex_keyboard_nav(&mut self, ctx: &egui::Context) {
+        let Some(sel) = self.hex_sel else { return };
+        if ctx.wants_keyboard_input() || self.capturing.is_some() {
+            return;
+        }
+        let step = ctx.input(|i| {
+            let mut d: i64 = 0;
+            if i.key_pressed(egui::Key::ArrowLeft) {
+                d -= 1;
+            }
+            if i.key_pressed(egui::Key::ArrowRight) {
+                d += 1;
+            }
+            if i.key_pressed(egui::Key::ArrowUp) {
+                d -= HEX_ROW_BYTES as i64;
+            }
+            if i.key_pressed(egui::Key::ArrowDown) {
+                d += HEX_ROW_BYTES as i64;
+            }
+            if i.key_pressed(egui::Key::PageUp) {
+                d -= HEX_PAGE_BYTES as i64;
+            }
+            if i.key_pressed(egui::Key::PageDown) {
+                d += HEX_PAGE_BYTES as i64;
+            }
+            d
+        });
+        if step == 0 {
+            return;
+        }
+        let next = if step < 0 {
+            sel.saturating_sub(step.unsigned_abs())
+        } else {
+            sel.saturating_add(step as u64)
+        };
+        self.hex_sel = Some(next);
+        // Keep the selection on screen: scroll by whole rows so the grid stays
+        // row-aligned and the address column keeps its familiar step.
+        if next < self.hex_addr {
+            let rows = (self.hex_addr - next).div_ceil(HEX_ROW_BYTES);
+            self.hex_addr = self.hex_addr.saturating_sub(rows * HEX_ROW_BYTES);
+        } else if next >= self.hex_addr + HEX_PAGE_BYTES {
+            let rows = (next - (self.hex_addr + HEX_PAGE_BYTES)).div_ceil(HEX_ROW_BYTES) + 1;
+            self.hex_addr = self.hex_addr.saturating_add(rows * HEX_ROW_BYTES);
+        }
+    }
+
     pub(super) fn hex_window(&mut self, ctx: &egui::Context) {
         if !self.show_hex {
             return;
         }
+        self.hex_keyboard_nav(ctx);
         let tr = self.tr();
         let mut open = true;
         let mut new_sel = None;

@@ -103,7 +103,6 @@ pub struct Tr {
     pub pin: &'static str,
     pub pin_hint: &'static str,
 
-    pub find_title: &'static str,
     pub find_search: &'static str,
     pub find_hint: &'static str,
     pub find_text: &'static str,
@@ -120,6 +119,9 @@ pub struct Tr {
 
     pub tab_value: &'static str,
     pub tab_group: &'static str,
+    pub tab_find: &'static str,
+    pub find_row_hint: &'static str,
+    pub find_refresh: &'static str,
     pub group_hint: &'static str,
     pub group_values_hint: &'static str,
     pub group_span: &'static str,
