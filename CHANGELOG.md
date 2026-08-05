@@ -7,6 +7,15 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Search hits show what is there.** The Find results list gains a preview of
+  the bytes at each match, decoded in whatever was searched for (UTF-8, UTF-16,
+  or hex for a byte signature), truncated to one line with the rest on hover. A
+  list of bare addresses cannot be triaged — a text search over a running game
+  returns every occurrence of the needle, and telling the interesting one from
+  a dozen string constants meant opening each in the memory viewer. Previews
+  are captured once, when the search runs, rather than re-read every frame.
+
 ## [0.18.1] - 2026-08-02
 
 ### Added

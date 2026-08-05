@@ -330,20 +330,32 @@ impl GameGeneApp {
         if query.is_empty() {
             return;
         }
-        let pattern = match self.find_mode {
-            FindMode::Text => text_pattern(query, TextEncoding::Utf8),
-            FindMode::Utf16 => text_pattern(query, TextEncoding::Utf16Le),
+        let (pattern, style) = match self.find_mode {
+            FindMode::Text => (
+                text_pattern(query, TextEncoding::Utf8),
+                PreviewStyle::Text(TextEncoding::Utf8),
+            ),
+            FindMode::Utf16 => (
+                text_pattern(query, TextEncoding::Utf16Le),
+                PreviewStyle::Text(TextEncoding::Utf16Le),
+            ),
             FindMode::Aob => match parse_aob(query) {
-                Ok(p) => p,
+                Ok(p) => (p, PreviewStyle::Hex),
                 Err(e) => {
                     self.status = format!("Bad pattern: {e}");
                     return;
                 }
             },
         };
-        self.find_results =
-            find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
-        self.status = format!("Found {} match(es)", self.find_results.len());
+        let hits = find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
+        self.status = format!("Found {} match(es)", hits.len());
+        self.find_results = hits
+            .into_iter()
+            .map(|addr| {
+                let bytes = read_context(src, addr, PREVIEW_BYTES);
+                (addr, preview(&bytes, style, PREVIEW_CHARS))
+            })
+            .collect();
     }
 
     /// Parse the group-scan query into typed queries (at least two), reporting
@@ -608,13 +620,23 @@ impl GameGeneApp {
                     .max_height(140.0)
                     .show(ui, |ui| {
                         egui::Grid::new("find_grid")
-                            .num_columns(2)
+                            .num_columns(3)
                             .striped(true)
                             .show(ui, |ui| {
-                                for &addr in &self.find_results {
+                                for (addr, text) in &self.find_results {
                                     ui.monospace(format!("{addr:#014x}"));
+                                    // Fixed width, truncated, full text on
+                                    // hover — the same treatment as every other
+                                    // live-value cell, so a long line cannot
+                                    // widen the panel.
+                                    ui.add_sized(
+                                        [260.0, ui.spacing().interact_size.y],
+                                        egui::Label::new(RichText::new(text).monospace())
+                                            .truncate(),
+                                    )
+                                    .on_hover_text(text);
                                     if ui.small_button(tr.add_table).clicked() {
-                                        find_add = Some(addr);
+                                        find_add = Some(*addr);
                                     }
                                     ui.end_row();
                                 }

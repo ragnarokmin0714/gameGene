@@ -4,7 +4,9 @@
 use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS, SETTLE_INTERVAL_MS, SETTLE_PASSES};
 use gamegene_core::fill::{plan_fixed, plan_increment};
-use gamegene_core::find::{find_pattern, parse_aob, text_pattern, TextEncoding};
+use gamegene_core::find::{
+    find_pattern, parse_aob, preview, text_pattern, PreviewStyle, TextEncoding,
+};
 use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
 use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
@@ -215,7 +217,12 @@ pub struct GameGeneApp {
     // Find (byte / text search)
     find_query: String,
     find_mode: FindMode,
-    find_results: Vec<u64>,
+    /// Each hit's address plus a snapshot of the bytes there, decoded for
+    /// reading. Captured once when the search runs rather than re-read every
+    /// frame: a text search can return thousands of hits, and one read per row
+    /// per frame would be thousands of syscalls a second for a list that only
+    /// ever shows a screenful.
+    find_results: Vec<(u64, String)>,
 
     // Which scan tab is active (single value vs. group of values)
     scan_tab: ScanTab,
@@ -504,6 +511,33 @@ fn read_value(src: &dyn MemorySource, addr: u64, ty: ValueType) -> Option<ScanVa
         return None;
     }
     Some(ScanValue::from_le_bytes(ty, &buf))
+}
+
+/// Bytes read at a search hit to build its preview, and the character budget
+/// that preview gets. Two bytes per character in UTF-16, so the byte figure is
+/// the binding one there.
+const PREVIEW_BYTES: usize = 192;
+const PREVIEW_CHARS: usize = 96;
+
+/// Read up to `want` bytes at `addr` for a preview, halving on failure.
+///
+/// A hit near the end of a region cannot serve a full window, and
+/// `ReadProcessMemory` fails atomically rather than returning a short read — so
+/// asking for less is the only way to see the bytes that *are* there. Returns
+/// empty only when even a single byte is unreadable.
+fn read_context(src: &dyn MemorySource, addr: u64, want: usize) -> Vec<u8> {
+    let mut want = want;
+    while want > 0 {
+        let mut buf = vec![0u8; want];
+        if let Ok(n) = src.read(addr, &mut buf) {
+            if n > 0 {
+                buf.truncate(n);
+                return buf;
+            }
+        }
+        want /= 2;
+    }
+    Vec::new()
 }
 
 /// Read as much of the slot at `addr` as is readable, up to the widest value

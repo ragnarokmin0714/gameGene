@@ -54,6 +54,68 @@ pub fn parse_aob(text: &str) -> Result<Pattern, String> {
     Ok(pattern)
 }
 
+/// How to render bytes for a one-line preview of a search hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewStyle {
+    /// Decode as text in the encoding that was searched for.
+    Text(TextEncoding),
+    /// Space-separated hex — for byte signatures, where the bytes *are* the
+    /// answer and decoding them as text would only obscure them.
+    Hex,
+}
+
+/// Stand-in for a byte that has no readable character. A middle dot rather than
+/// `.`, so it cannot be mistaken for a period that is genuinely in the text.
+const NON_PRINTABLE: char = '·';
+
+/// Render the bytes at a search hit as a single line of at most `max_chars`
+/// characters, for showing beside the address in the results list.
+///
+/// A list of bare addresses cannot be triaged: a text search over a running game
+/// returns every place the needle occurs, and the only way to tell the
+/// interesting one from a dozen string constants is to look at what surrounds
+/// it. Control and unpaired characters collapse to [`NON_PRINTABLE`] so one line
+/// stays one line whatever the bytes hold.
+pub fn preview(bytes: &[u8], style: PreviewStyle, max_chars: usize) -> String {
+    match style {
+        PreviewStyle::Hex => {
+            let mut s = String::new();
+            for b in bytes.iter().take(max_chars) {
+                if !s.is_empty() {
+                    s.push(' ');
+                }
+                s.push_str(&format!("{b:02X}"));
+            }
+            s
+        }
+        // Decoded properly rather than byte-by-byte: a CJK game's strings are
+        // multi-byte, and a Latin-1 style gutter would render all of them as
+        // dots — exactly the text you most want to read.
+        PreviewStyle::Text(TextEncoding::Utf8) => String::from_utf8_lossy(bytes)
+            .chars()
+            .take(max_chars)
+            .map(printable)
+            .collect(),
+        PreviewStyle::Text(TextEncoding::Utf16Le) => bytes
+            .chunks_exact(2)
+            .take(max_chars)
+            .map(|c| {
+                char::from_u32(u16::from_le_bytes([c[0], c[1]]) as u32)
+                    .map_or(NON_PRINTABLE, printable)
+            })
+            .collect(),
+    }
+}
+
+/// A character as it should appear in a preview line.
+fn printable(c: char) -> char {
+    if c.is_control() || c == char::REPLACEMENT_CHARACTER {
+        NON_PRINTABLE
+    } else {
+        c
+    }
+}
+
 /// Whether `pattern` matches at the start of `window` (which must be at least
 /// `pattern.len()` bytes).
 fn matches_at(pattern: &Pattern, window: &[u8]) -> bool {
