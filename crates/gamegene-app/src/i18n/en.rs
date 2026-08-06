@@ -71,6 +71,12 @@ pub(super) static EN: Tr = Tr {
     apply: "Apply",
     pin: "Pin",
     pin_hint: "Find a pointer path so this entry still works after the game restarts",
+    ptr_title: "Pointer paths",
+    ptr_hint: "One scan cannot tell a stable path from a coincidence — both resolve right now. Restart the game, find the value again, enter its new address and revalidate. Repeat until a handful remain.",
+    ptr_target: "Value is now at",
+    ptr_revalidate: "Revalidate",
+    ptr_revalidate_hint: "Drop every path that no longer reaches that address.",
+    ptr_adopt: "Use this",
 
     find_search: "Search",
     find_hint: "a name or word, or hex like 4A ?? 3C 90",

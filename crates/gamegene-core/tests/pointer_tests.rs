@@ -2,7 +2,7 @@
 //! confirm the found chain actually resolves back to it.
 
 use gamegene_core::mock::MockMemory;
-use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
+use gamegene_core::pointer::{pointer_scan, revalidate, PointerScanOptions};
 use gamegene_core::table::Locator;
 
 const BASE: u64 = 0x40_0000;
@@ -60,4 +60,45 @@ fn no_modules_means_no_paths() {
     let mem = MockMemory::new(BASE, 0x100);
     mem.poke(BASE + 0x10, &(BASE + 0x20).to_le_bytes());
     assert!(pointer_scan(&mem, BASE + 0x20, PointerScanOptions::default()).is_empty());
+}
+
+#[test]
+fn revalidate_keeps_only_the_paths_that_survive_a_restart() {
+    // Run 1: a real chain (static B → object → +0x20) and a coincidence — a
+    // stray value that happens to land on the target this time round.
+    let mem = MockMemory::new(BASE, 0x1000).with_module("game.exe", BASE);
+    mem.poke(BASE + 0x10, &(BASE + 0x100).to_le_bytes()); // the real base pointer
+    mem.poke(BASE + 0x18, &(BASE + 0x120).to_le_bytes()); // a coincidental one
+    let target = BASE + 0x120;
+
+    let paths = pointer_scan(&mem, target, PointerScanOptions::default());
+    assert!(paths.len() >= 2, "fixture should offer several candidates");
+    assert!(paths.iter().all(|p| p.resolve(&mem) == Some(target)));
+
+    // Run 2: the object moved, as it would after a restart. The real chain
+    // follows it because the base pointer was updated; the coincidence did not.
+    let moved = BASE + 0x300;
+    mem.poke(BASE + 0x10, &moved.to_le_bytes());
+    let new_target = moved + 0x20;
+
+    let survivors = revalidate(&mem, &paths, new_target);
+    assert!(!survivors.is_empty(), "the real chain must survive");
+    assert!(
+        survivors.len() < paths.len(),
+        "the coincidence must be dropped"
+    );
+    assert!(survivors
+        .iter()
+        .all(|p| p.resolve(&mem) == Some(new_target)));
+}
+
+#[test]
+fn revalidate_against_an_unreachable_target_keeps_nothing() {
+    let mem = MockMemory::new(BASE, 0x1000).with_module("game.exe", BASE);
+    mem.poke(BASE + 0x10, &(BASE + 0x100).to_le_bytes());
+    let paths = pointer_scan(&mem, BASE + 0x120, PointerScanOptions::default());
+    assert!(!paths.is_empty());
+    // Nothing resolves here, so an honest result is an empty list rather than
+    // the closest guess.
+    assert!(revalidate(&mem, &paths, BASE + 0x900).is_empty());
 }

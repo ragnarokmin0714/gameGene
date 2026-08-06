@@ -7,6 +7,16 @@ breaking changes).
 
 ## [Unreleased]
 
+### Added
+- **Pointer paths can be narrowed across restarts.** Pinning a table entry used
+  to run a pointer scan and silently adopt the first path it found. One scan
+  cannot tell a stable path from a coincidence — both resolve correctly in the
+  run that found them — so "pinned" claimed something it had no evidence for.
+  The candidates now open in a window: restart the game, find the value again,
+  enter its new address, and revalidate to drop every path that no longer
+  reaches it. Repeat across a few restarts and adopt a survivor. `revalidate`
+  is pure core logic over `MemorySource`, tested against the mock.
+
 ### Changed
 - **Text search stopped asking which encoding.** One "Text" mode now searches
   UTF-8 *and* UTF-16 and tags each hit with the one that matched, replacing

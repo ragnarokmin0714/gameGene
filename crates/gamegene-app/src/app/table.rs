@@ -286,8 +286,14 @@ impl GameGeneApp {
             });
     }
 
-    /// Run a pointer scan for a table entry's current address and, if a stable
-    /// pointer path is found, replace its locator so it survives restarts.
+    /// Run a pointer scan for a table entry's current address and open the
+    /// candidates for narrowing.
+    ///
+    /// It used to take the first path found and pin it silently. One scan
+    /// cannot tell a stable path from a coincidence — both resolve correctly in
+    /// the run they were found in — so "pinned" promised something it had no
+    /// evidence for. The candidates now go to a window where restarts can
+    /// eliminate the lucky ones.
     fn pin_entry(&mut self, id: u64) {
         let Some(src) = self.source.as_deref() else {
             self.status = "Attach to a process first.".into();
@@ -300,19 +306,135 @@ impl GameGeneApp {
             self.status = "Could not resolve the entry's address.".into();
             return;
         };
-        self.status = format!("Scanning for a pointer path to {addr:#x}…");
-        match pointer_scan(src, addr, PointerScanOptions::default())
-            .into_iter()
-            .next()
-        {
-            Some(path) => {
-                entry.locator = path;
-                self.status = format!("Pinned {} — now survives restart", entry.label);
-            }
-            None => {
-                self.status = "No pointer path found (try again or keep the raw address)".into()
-            }
+        self.status = format!("Scanning for pointer paths to {addr:#x}…");
+        let paths = pointer_scan(src, addr, PointerScanOptions::default());
+        if paths.is_empty() {
+            self.status = "No pointer path found (try again or keep the raw address)".into();
+            return;
         }
+        self.status = format!(
+            "{} candidate path(s) — narrow them across restarts",
+            paths.len()
+        );
+        self.ptr_initial = paths.len();
+        self.ptr_paths = paths;
+        self.ptr_entry = Some(id);
+        self.ptr_target_input = format!("{addr:X}");
+        self.show_ptr = true;
+    }
+
+    /// The pointer-path window: candidates for one entry, a revalidation pass
+    /// to run after each restart, and adoption of a survivor as the locator.
+    pub(super) fn pointer_window(&mut self, ctx: &egui::Context) {
+        if !self.show_ptr {
+            return;
+        }
+        let tr = self.tr();
+        let mut open = true;
+        let mut do_revalidate = false;
+        let mut adopt = None;
+        egui::Window::new(tr.ptr_title)
+            .open(&mut open)
+            .resizable(true)
+            .default_width(560.0)
+            .show(ctx, |ui| {
+                ui.label(RichText::new(tr.ptr_hint).weak());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!(
+                        "{} / {}",
+                        self.ptr_paths.len(),
+                        self.ptr_initial
+                    )));
+                    bar_label(ui, tr.ptr_target);
+                    ui.label("0x");
+                    ui.add(control_edit(&mut self.ptr_target_input, 130.0));
+                    if ui
+                        .button(tr.ptr_revalidate)
+                        .on_hover_text(tr.ptr_revalidate_hint)
+                        .clicked()
+                    {
+                        do_revalidate = true;
+                    }
+                });
+                ui.separator();
+                let src = self.source.as_deref();
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui::Grid::new("ptr_grid")
+                            .num_columns(3)
+                            .striped(true)
+                            .show(ui, |ui| {
+                                for (i, path) in self.ptr_paths.iter().enumerate() {
+                                    ui.monospace(describe_locator(path));
+                                    // Resolving live is the only honest column:
+                                    // a path that cannot resolve right now is
+                                    // already known to be worthless.
+                                    let now = src
+                                        .and_then(|s| path.resolve(s))
+                                        .map(|a| format!("{a:#014X}"))
+                                        .unwrap_or_else(|| "—".into());
+                                    ui.monospace(now);
+                                    if ui.small_button(tr.ptr_adopt).clicked() {
+                                        adopt = Some(i);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+
+        if do_revalidate {
+            self.revalidate_paths();
+        }
+        if let Some(i) = adopt {
+            self.adopt_path(i);
+        }
+        if !open {
+            self.show_ptr = false;
+        }
+    }
+
+    /// Drop the candidates that no longer reach the value's current address.
+    fn revalidate_paths(&mut self) {
+        let Some(src) = self.source.as_deref() else {
+            self.status = "Attach to a process first.".into();
+            return;
+        };
+        let text = self
+            .ptr_target_input
+            .trim()
+            .trim_start_matches("0x")
+            .trim_start_matches("0X");
+        let Ok(target) = u64::from_str_radix(text, 16) else {
+            self.status = "Enter the value's current address in hex.".into();
+            return;
+        };
+        let before = self.ptr_paths.len();
+        self.ptr_paths = revalidate(src, &self.ptr_paths, target);
+        self.status = if self.ptr_paths.is_empty() {
+            // Better to say so than to leave a path that has been disproved.
+            format!("No path still reaches {target:#x} — none of the {before} were stable")
+        } else {
+            format!(
+                "{} of {before} path(s) still reach {target:#x}",
+                self.ptr_paths.len()
+            )
+        };
+    }
+
+    /// Make candidate `i` the entry's locator, so it survives restarts.
+    fn adopt_path(&mut self, i: usize) {
+        let Some(id) = self.ptr_entry else { return };
+        let Some(path) = self.ptr_paths.get(i).cloned() else {
+            return;
+        };
+        if let Some(entry) = self.table.get_mut(id) {
+            entry.locator = path;
+            self.status = format!("Pinned {} — now survives restart", entry.label);
+        }
+        self.show_ptr = false;
     }
 
     pub(super) fn save_table(&mut self) {

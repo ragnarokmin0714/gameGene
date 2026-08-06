@@ -69,6 +69,26 @@ pub fn pointer_scan(
     ctx.results
 }
 
+/// Keep the paths that still resolve to `target`, dropping the rest.
+///
+/// A single pointer scan cannot tell a stable path from a lucky one: both
+/// resolve correctly *right now*, which is the only evidence available in one
+/// run. The way to tell them apart is time — restart the game, find the value
+/// again, and ask which paths still reach it. Coincidences do not survive an
+/// ASLR reshuffle; a real chain does. Repeating this across a few restarts is
+/// what turns a list of candidates into one you can save.
+///
+/// Paths are re-resolved against `source`, so this must run while attached to
+/// the *new* run of the process, with `target` being the address the value has
+/// **now**.
+pub fn revalidate(source: &dyn MemorySource, paths: &[Locator], target: u64) -> Vec<Locator> {
+    paths
+        .iter()
+        .filter(|p| p.resolve(source) == Some(target))
+        .cloned()
+        .collect()
+}
+
 struct Ctx<'a> {
     /// `(pointer value, location holding it)`, sorted by value.
     records: &'a [(u64, u64)],

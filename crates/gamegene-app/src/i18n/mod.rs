@@ -102,6 +102,12 @@ pub struct Tr {
     pub apply: &'static str,
     pub pin: &'static str,
     pub pin_hint: &'static str,
+    pub ptr_title: &'static str,
+    pub ptr_hint: &'static str,
+    pub ptr_target: &'static str,
+    pub ptr_revalidate: &'static str,
+    pub ptr_revalidate_hint: &'static str,
+    pub ptr_adopt: &'static str,
 
     pub find_search: &'static str,
     pub find_hint: &'static str,

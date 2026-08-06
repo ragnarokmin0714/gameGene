@@ -71,6 +71,12 @@ pub(super) static ZH: Tr = Tr {
     apply: "套用",
     pin: "固定",
     pin_hint: "尋找指標路徑，讓此項目在遊戲重開後仍然有效",
+    ptr_title: "指標路徑",
+    ptr_hint: "一次掃描分不出穩定路徑和巧合 —— 兩者現在都解得開。重開遊戲、重新找到那個數值、填入它的新位址、按重新驗證。重複幾次，剩下的才可信。",
+    ptr_target: "數值現在位於",
+    ptr_revalidate: "重新驗證",
+    ptr_revalidate_hint: "刪掉所有無法再指向該位址的路徑。",
+    ptr_adopt: "採用",
 
     find_search: "搜尋",
     find_hint: "名稱或字詞，或十六進位如 4A ?? 3C 90",

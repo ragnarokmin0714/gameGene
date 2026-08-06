@@ -9,7 +9,7 @@ use gamegene_core::find::{
 };
 use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
-use gamegene_core::pointer::{pointer_scan, PointerScanOptions};
+use gamegene_core::pointer::{pointer_scan, revalidate, PointerScanOptions};
 use gamegene_core::scan::{Compare, ResultFilter, ScanSession};
 use gamegene_core::structure::{dissect, infer_fields, Field, StrideOptions};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
@@ -267,6 +267,21 @@ pub struct GameGeneApp {
     pending_add: Option<(u64, ValueType)>,
     pending_add_label: String,
 
+    // Pointer paths — candidates for one table entry, narrowed across restarts.
+    //
+    // Kept in app state rather than on the entry: they are working material,
+    // only one of them ever becomes the entry's locator, and a list that has
+    // not yet survived a restart is not worth saving to a cheat table.
+    show_ptr: bool,
+    /// Which table entry the candidates belong to.
+    ptr_entry: Option<u64>,
+    ptr_paths: Vec<Locator>,
+    /// How many candidates the first scan produced, so the narrowing is visible.
+    ptr_initial: usize,
+    /// Target address for the next revalidation pass — where the value lives in
+    /// the *current* run, which is not where it lived when the paths were found.
+    ptr_target_input: String,
+
     // Memory viewer
     show_hex: bool,
     hex_addr: u64,
@@ -374,6 +389,11 @@ impl GameGeneApp {
             group_scanned: false,
             pending_add: None,
             pending_add_label: String::new(),
+            show_ptr: false,
+            ptr_entry: None,
+            ptr_paths: Vec::new(),
+            ptr_initial: 0,
+            ptr_target_input: String::new(),
             show_hex: false,
             hex_addr: 0,
             hex_addr_input: String::new(),
@@ -471,6 +491,7 @@ impl eframe::App for GameGeneApp {
         self.struct_window(ctx);
         self.confirm_add_window(ctx);
         self.confirm_clear_window(ctx);
+        self.pointer_window(ctx);
         self.settings_window(ctx);
     }
 
@@ -528,6 +549,25 @@ fn bar_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
 fn fmt_hms(d: Duration) -> String {
     let s = d.as_secs();
     format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
+}
+
+/// A pointer path in the form the user recognizes: `module+base -> +o1 -> +o2`.
+///
+/// The offsets are the whole content of a path — two candidates differing only
+/// in their last hop have to be told apart at a glance.
+fn describe_locator(loc: &Locator) -> String {
+    match loc {
+        Locator::Pointer {
+            module,
+            base_offset,
+            offsets,
+        } => {
+            let hops: Vec<String> = offsets.iter().map(|o| format!("+{o:#X}")).collect();
+            format!("{module}+{base_offset:#X} -> {}", hops.join(" -> "))
+        }
+        Locator::Absolute(a) => format!("{a:#014X}"),
+        other => format!("{other:?}"),
+    }
 }
 
 /// Read one typed value from a source, or `None` if unreadable.
