@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-08-06
+
 ### Added
 - **Find is a tab, beside value scan and group scan.** It was folded away in a
   collapsing header under the value scan, which read as an accessory to
