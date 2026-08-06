@@ -5,7 +5,7 @@ use eframe::egui::{self, Key, RichText};
 use gamegene_core::constants::{APP_NAME, FREEZE_INTERVAL_MS, SETTLE_INTERVAL_MS, SETTLE_PASSES};
 use gamegene_core::fill::{plan_fixed, plan_increment};
 use gamegene_core::find::{
-    find_pattern, parse_aob, preview, text_pattern, PreviewStyle, TextEncoding,
+    find_pattern, parse_aob, preview, text_pattern, Pattern, PreviewStyle, TextEncoding,
 };
 use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
@@ -139,11 +139,26 @@ enum ValueFilter {
 }
 
 /// How the "Find" box interprets its query.
+///
+/// Text no longer asks which encoding: a game's strings are UTF-16 if it is
+/// .NET/Unity and UTF-8 if it is native C++, and the user has no way to know
+/// which. Making them pick turned one wrong guess into "this feature is
+/// broken" — so Text searches both and each hit says which one matched.
 #[derive(Clone, Copy, PartialEq)]
 enum FindMode {
     Text,
-    Utf16,
     Aob,
+}
+
+/// One search hit: where it is, how to read it, and a preview of what is there.
+struct FindHit {
+    addr: u64,
+    /// Which encoding matched, for the row's tag. Empty for a byte signature.
+    encoding: &'static str,
+    /// How to decode this hit's bytes — differs per hit once Text matches both
+    /// encodings in the same search.
+    style: PreviewStyle,
+    preview: String,
 }
 
 /// Which scan mode the scan panel is showing — a single value, or a group of
@@ -226,10 +241,7 @@ pub struct GameGeneApp {
     /// frame: a text search can return thousands of hits, and one read per row
     /// per frame would be thousands of syscalls a second for a list that only
     /// ever shows a screenful.
-    find_results: Vec<(u64, String)>,
-    /// How the last search's hits are decoded, so a pinned hit reads the same
-    /// way its row did.
-    find_style: PreviewStyle,
+    find_results: Vec<FindHit>,
     /// The hit whose surroundings are pinned open below the list, and the text
     /// read there. Pinned because a hover tooltip vanishes the moment the
     /// pointer moves toward it — unreadable for anything longer than a glance,
@@ -352,7 +364,6 @@ impl GameGeneApp {
             find_query: String::new(),
             find_mode: FindMode::Text,
             find_results: Vec::new(),
-            find_style: PreviewStyle::Text(TextEncoding::Utf8),
             find_pinned: None,
             find_pinned_text: String::new(),
             scan_tab: ScanTab::default(),
@@ -540,6 +551,11 @@ const PREVIEW_CHARS: usize = 96;
 /// identify it.
 const DETAIL_BYTES: usize = 2048;
 const DETAIL_CHARS: usize = 1024;
+
+/// Half-width of the address window "narrow the scan to here" sets around a
+/// hit. A game's fields sit in the same allocation as the strings that name
+/// them, so a few KB either side is where the value almost always is.
+const FIND_RANGE_HALF: u64 = 2048;
 
 /// Read up to `want` bytes at `addr` for a preview, halving on failure.
 ///

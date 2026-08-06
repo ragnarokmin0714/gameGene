@@ -106,7 +106,10 @@ pub struct Tr {
     pub find_search: &'static str,
     pub find_hint: &'static str,
     pub find_text: &'static str,
-    pub find_utf16: &'static str,
+    pub find_text_hint: &'static str,
+    pub find_purpose: &'static str,
+    pub find_narrow: &'static str,
+    pub find_narrow_hint: &'static str,
     pub find_aob: &'static str,
 
     pub scanning: &'static str,

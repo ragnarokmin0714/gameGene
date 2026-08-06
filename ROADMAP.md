@@ -173,7 +173,14 @@ save editor that knows any particular game.
 ## Quality of life
 
 - Global hotkeys to toggle a freeze / set a value without alt-tabbing out of the
-  game (`RegisterHotKey` on Windows).
+  game. **`RegisterHotKey` is the ceiling — if it is not enough, drop the
+  feature.** A low-level keyboard hook (`SetWindowsHookEx(WH_KEYBOARD_LL)`) is
+  the obvious next step when `RegisterHotKey` turns out to be too limited (few
+  usable combinations, loses to a game holding exclusive input), and it is also
+  the textbook keylogger API. Combined with what this tool already does —
+  reading and writing another process's memory — it completes a malware
+  profile that no amount of explaining will talk an antivirus out of. The
+  limitation is the point, not an obstacle to route around.
 - Descriptions / comments on cheat-table entries so a saved table is
   self-documenting.
 

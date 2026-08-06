@@ -73,9 +73,12 @@ pub(super) static JA: Tr = Tr {
     pin_hint: "ポインタパスを探し、ゲーム再起動後もこの項目が使えるようにします",
 
     find_search: "検索",
-    find_hint: "テキスト、または 4A ?? 3C 90 のような16進数",
-    find_text: "テキスト",
-    find_utf16: "テキスト (UTF-16)",
+    find_hint: "名前や単語、または 4A ?? 3C 90 のような16進",
+    find_text: "テキスト（エンコーディング自動）",
+    find_text_hint: "UTF-8 と UTF-16 の両方を検索します。.NET/Unity は UTF-16、ネイティブは UTF-8 —— どちらかを知る必要はありません。",
+    find_purpose: "ゲーム内で見える文字（キャラ名・アイテム名）を手がかりにして、その周辺にスキャン範囲を絞り込みます。目的の値は、それを名付けるテキストの隣にあります。",
+    find_narrow: "この付近に絞る",
+    find_narrow_hint: "この一致点の周辺にリザルトフィルタを設定し、値スキャンに切り替えます。",
     find_aob: "バイト列 (hex)",
 
     scanning: "スキャン中…",

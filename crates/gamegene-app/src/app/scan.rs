@@ -102,8 +102,13 @@ impl GameGeneApp {
         let Some(src) = self.source.as_deref() else {
             return;
         };
+        let style = self
+            .find_results
+            .iter()
+            .find(|h| h.addr == addr)
+            .map_or(PreviewStyle::Text(TextEncoding::Utf8), |h| h.style);
         let bytes = read_context(src, addr, DETAIL_BYTES);
-        self.find_pinned_text = preview(&bytes, self.find_style, DETAIL_CHARS);
+        self.find_pinned_text = preview(&bytes, style, DETAIL_CHARS);
         self.find_pinned = Some(addr);
     }
 
@@ -341,37 +346,65 @@ impl GameGeneApp {
         if query.is_empty() {
             return;
         }
-        let (pattern, style) = match self.find_mode {
-            FindMode::Text => (
-                text_pattern(query, TextEncoding::Utf8),
-                PreviewStyle::Text(TextEncoding::Utf8),
-            ),
-            FindMode::Utf16 => (
-                text_pattern(query, TextEncoding::Utf16Le),
-                PreviewStyle::Text(TextEncoding::Utf16Le),
-            ),
+        // Text runs both encodings and keeps whichever matched, so a game's
+        // choice of string representation never has to be guessed.
+        let passes: Vec<(Pattern, &'static str, PreviewStyle)> = match self.find_mode {
+            FindMode::Text => vec![
+                (
+                    text_pattern(query, TextEncoding::Utf8),
+                    "UTF-8",
+                    PreviewStyle::Text(TextEncoding::Utf8),
+                ),
+                (
+                    text_pattern(query, TextEncoding::Utf16Le),
+                    "UTF-16",
+                    PreviewStyle::Text(TextEncoding::Utf16Le),
+                ),
+            ],
             FindMode::Aob => match parse_aob(query) {
-                Ok(p) => (p, PreviewStyle::Hex),
+                Ok(p) => vec![(p, "", PreviewStyle::Hex)],
                 Err(e) => {
                     self.status = format!("Bad pattern: {e}");
                     return;
                 }
             },
         };
-        let hits = find_pattern(src, &pattern, gamegene_core::constants::MAX_RESULTS_DISPLAY);
-        self.status = format!("Found {} match(es)", hits.len());
-        self.find_style = style;
+
+        let cap = gamegene_core::constants::MAX_RESULTS_DISPLAY;
+        let mut hits: Vec<FindHit> = Vec::new();
+        let mut per_encoding = Vec::new();
+        for (pattern, encoding, style) in passes {
+            let found = find_pattern(src, &pattern, cap);
+            per_encoding.push((encoding, found.len()));
+            for addr in found {
+                let bytes = read_context(src, addr, PREVIEW_BYTES);
+                hits.push(FindHit {
+                    addr,
+                    encoding,
+                    style,
+                    preview: preview(&bytes, style, PREVIEW_CHARS),
+                });
+            }
+        }
+        hits.sort_unstable_by_key(|h| h.addr);
+        hits.truncate(cap);
+
+        self.status = if per_encoding.len() > 1 {
+            // Naming the count per encoding is the quickest way to see that a
+            // search "found nothing" only in the encoding you expected.
+            let parts: Vec<String> = per_encoding
+                .iter()
+                .map(|(e, n)| format!("{e} {n}"))
+                .collect();
+            format!("Found {} match(es) — {}", hits.len(), parts.join(", "))
+        } else {
+            format!("Found {} match(es)", hits.len())
+        };
         // The old pin points into the previous search's results; keeping it open
         // would show text unrelated to what is now listed.
         self.find_pinned = None;
         self.find_pinned_text.clear();
-        self.find_results = hits
-            .into_iter()
-            .map(|addr| {
-                let bytes = read_context(src, addr, PREVIEW_BYTES);
-                (addr, preview(&bytes, style, PREVIEW_CHARS))
-            })
-            .collect();
+        self.find_results = hits;
     }
 
     /// Parse the group-scan query into typed queries (at least two), reporting
@@ -685,17 +718,18 @@ impl GameGeneApp {
         let mut goto_addr = None;
         let mut pin_addr = None;
         let mut unpin = false;
+        let mut dissect_from = None;
+        let mut narrow_to = None;
 
         ui.horizontal(|ui| {
             egui::ComboBox::from_id_source("findmode")
                 .selected_text(match self.find_mode {
                     FindMode::Text => tr.find_text,
-                    FindMode::Utf16 => tr.find_utf16,
                     FindMode::Aob => tr.find_aob,
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.find_mode, FindMode::Text, tr.find_text);
-                    ui.selectable_value(&mut self.find_mode, FindMode::Utf16, tr.find_utf16);
+                    ui.selectable_value(&mut self.find_mode, FindMode::Text, tr.find_text)
+                        .on_hover_text(tr.find_text_hint);
                     ui.selectable_value(&mut self.find_mode, FindMode::Aob, tr.find_aob);
                 });
             let resp = ui.add(control_edit(&mut self.find_query, 220.0).hint_text(tr.find_hint));
@@ -709,7 +743,10 @@ impl GameGeneApp {
                 );
             }
         });
-        ui.label(RichText::new(tr.find_row_hint).weak());
+        // What this is *for*. Without it the panel is a text box with no stated
+        // purpose, and the useful workflow — anchor on a name, then scan nearby
+        // — is invisible.
+        ui.label(RichText::new(tr.find_purpose).weak());
         ui.separator();
 
         // The pinned pane is above the list and fixed in height, so picking
@@ -725,6 +762,16 @@ impl GameGeneApp {
                 }
                 if ui.small_button(tr.add_table).clicked() {
                     find_add = Some(addr);
+                }
+                if ui.small_button(tr.arr_dissect).clicked() {
+                    dissect_from = Some(addr);
+                }
+                if ui
+                    .small_button(tr.find_narrow)
+                    .on_hover_text(tr.find_narrow_hint)
+                    .clicked()
+                {
+                    narrow_to = Some(addr);
                 }
                 if ui.small_button(tr.find_refresh).clicked() {
                     pin_addr = Some(addr); // re-read: the bytes may have changed
@@ -757,24 +804,29 @@ impl GameGeneApp {
                     .num_columns(3)
                     .striped(true)
                     .show(ui, |ui| {
-                        for (addr, text) in &self.find_results {
-                            let selected = self.find_pinned == Some(*addr);
+                        for hit in &self.find_results {
+                            let selected = self.find_pinned == Some(hit.addr);
+                            let label = if hit.encoding.is_empty() {
+                                format!("{:#014x}", hit.addr)
+                            } else {
+                                // The encoding is output, not a question: it
+                                // says which representation this game used.
+                                format!("{:#014x}  {}", hit.addr, hit.encoding)
+                            };
                             if ui
-                                .selectable_label(
-                                    selected,
-                                    RichText::new(format!("{addr:#014x}")).monospace(),
-                                )
+                                .selectable_label(selected, RichText::new(label).monospace())
                                 .on_hover_text(tr.find_row_hint)
                                 .clicked()
                             {
-                                pin_addr = Some(*addr);
+                                pin_addr = Some(hit.addr);
                             }
                             ui.add_sized(
                                 [300.0, ui.spacing().interact_size.y],
-                                egui::Label::new(RichText::new(text).monospace()).truncate(),
+                                egui::Label::new(RichText::new(&hit.preview).monospace())
+                                    .truncate(),
                             );
                             if ui.small_button(tr.add_table).clicked() {
-                                find_add = Some(*addr);
+                                find_add = Some(hit.addr);
                             }
                             ui.end_row();
                         }
@@ -796,6 +848,24 @@ impl GameGeneApp {
         }
         if let Some(addr) = goto_addr {
             self.open_hex_at(addr);
+        }
+        if let Some(addr) = dissect_from {
+            self.show_struct = true;
+            self.struct_base = addr;
+            self.struct_base_input = format!("{addr:X}");
+            self.struct_detect();
+        }
+        if let Some(addr) = narrow_to {
+            // Seed the results filter with a window around the hit and switch to
+            // the value tab, where that filter takes effect. This is the whole
+            // point of finding a string: the field you want lives beside the
+            // text that names it, and a few KB beats scanning the address space.
+            let lo = addr.saturating_sub(FIND_RANGE_HALF);
+            let hi = addr.saturating_add(FIND_RANGE_HALF);
+            self.filter_addr_min = format!("{lo:X}");
+            self.filter_addr_max = format!("{hi:X}");
+            self.scan_tab = ScanTab::Value;
+            self.status = format!("Results filtered to {lo:#X}…{hi:#X}");
         }
     }
 

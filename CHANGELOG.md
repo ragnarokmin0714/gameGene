@@ -7,6 +7,19 @@ breaking changes).
 
 ## [Unreleased]
 
+### Changed
+- **Text search stopped asking which encoding.** One "Text" mode now searches
+  UTF-8 *and* UTF-16 and tags each hit with the one that matched, replacing
+  the two modes that made the user guess. Nobody can know in advance whether a
+  game stores strings as UTF-16 (.NET/Unity) or UTF-8 (native), so a wrong
+  guess returned nothing and read as "this feature is broken". The status line
+  reports the count per encoding.
+- **The Find tab says what it is for**, and its pinned hit carries the two
+  actions that follow from a hit: *Dissect* and *Narrow scan to here*. The
+  latter seeds the results filter with a window around the address and returns
+  to the value scan — the workflow the feature exists for (anchor on a name
+  you can see in the game, then scan the bytes beside it) but never showed.
+
 ## [0.20.0] - 2026-08-06
 
 ### Added

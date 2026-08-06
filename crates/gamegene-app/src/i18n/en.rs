@@ -73,9 +73,12 @@ pub(super) static EN: Tr = Tr {
     pin_hint: "Find a pointer path so this entry still works after the game restarts",
 
     find_search: "Search",
-    find_hint: "text, or hex like 4A ?? 3C 90",
-    find_text: "Text",
-    find_utf16: "Text (UTF-16)",
+    find_hint: "a name or word, or hex like 4A ?? 3C 90",
+    find_text: "Text (any encoding)",
+    find_text_hint: "Searches UTF-8 and UTF-16 both — a game's strings are UTF-16 if it is .NET/Unity, UTF-8 if native. Each hit says which matched.",
+    find_purpose: "Anchor on text you can see in the game — a character or item name — then narrow the scan to the bytes around it. The value you want lives beside the text that names it.",
+    find_narrow: "Narrow scan to here",
+    find_narrow_hint: "Set the results filter to a window around this hit and switch to the value scan.",
     find_aob: "Bytes (hex)",
 
     scanning: "Scanning…",

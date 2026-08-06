@@ -73,9 +73,12 @@ pub(super) static ZH: Tr = Tr {
     pin_hint: "尋找指標路徑，讓此項目在遊戲重開後仍然有效",
 
     find_search: "搜尋",
-    find_hint: "文字，或十六進位如 4A ?? 3C 90",
-    find_text: "文字",
-    find_utf16: "文字 (UTF-16)",
+    find_hint: "名稱或字詞，或十六進位如 4A ?? 3C 90",
+    find_text: "文字（自動偵測編碼）",
+    find_text_hint: "同時搜尋 UTF-8 與 UTF-16 —— .NET/Unity 遊戲用 UTF-16、原生程式用 UTF-8，你不需要知道是哪種。每筆結果會標出命中的是哪一種。",
+    find_purpose: "用遊戲裡看得到的文字當錨點（角色名、道具名），再把掃描範圍限定在它附近。你要找的數值，就住在替它命名的那段文字旁邊。",
+    find_narrow: "限定掃描範圍",
+    find_narrow_hint: "把結果篩選設成這個命中點周圍的區間，並切到單值掃描。",
     find_aob: "位元組 (hex)",
 
     scanning: "掃描中…",
