@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-08-08
+
 ### Fixed
 - **Ordering is exact for every integer now, not just in the scan loop.**
   0.14.0 made the specialized scan comparisons native, and the changelog said
