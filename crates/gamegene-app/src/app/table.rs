@@ -307,13 +307,21 @@ impl GameGeneApp {
             return;
         };
         self.status = format!("Scanning for pointer paths to {addr:#x}…");
-        let paths = pointer_scan(src, addr, PointerScanOptions::default());
+        let (paths, truncated) = pointer_scan_with(src, addr, PointerScanOptions::default());
+        // "No path exists" and "no path within the part we could hold" are
+        // different answers, and only one of them means stop trying.
+        let note = if truncated {
+            " (pointer collection hit its limit — results may be incomplete)"
+        } else {
+            ""
+        };
         if paths.is_empty() {
-            self.status = "No pointer path found (try again or keep the raw address)".into();
+            self.status =
+                format!("No pointer path found (try again or keep the raw address){note}");
             return;
         }
         self.status = format!(
-            "{} candidate path(s) — narrow them across restarts",
+            "{} candidate path(s) — narrow them across restarts{note}",
             paths.len()
         );
         self.ptr_initial = paths.len();

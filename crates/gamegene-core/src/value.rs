@@ -155,11 +155,10 @@ impl ScanValue {
         })
     }
 
-    /// Numeric value as `f64`, for ordering and relative comparisons.
+    /// Numeric value as `f64`.
     ///
-    /// Note: `i64`/`u64` magnitudes beyond 2^53 lose precision here. Exact
-    /// equality (used by `Exact`/`Changed`/`Unchanged`) never goes through this
-    /// path, so only ordering of very large 64-bit integers is affected.
+    /// Lossy for `i64`/`u64` magnitudes beyond 2^53 — use [`num_cmp`](Self::num_cmp)
+    /// for ordering, which keeps integers exact.
     pub fn as_f64(&self) -> f64 {
         match self {
             ScanValue::I8(v) => *v as f64,
@@ -175,9 +174,40 @@ impl ScanValue {
         }
     }
 
+    /// This value as an exact integer, or `None` if it is a float.
+    ///
+    /// `i128` holds every integer variant — including all of `u64` and all of
+    /// `i64` — so no integer comparison has to round-trip through `f64`.
+    fn as_i128(&self) -> Option<i128> {
+        Some(match self {
+            ScanValue::I8(v) => *v as i128,
+            ScanValue::I16(v) => *v as i128,
+            ScanValue::I32(v) => *v as i128,
+            ScanValue::I64(v) => *v as i128,
+            ScanValue::U8(v) => *v as i128,
+            ScanValue::U16(v) => *v as i128,
+            ScanValue::U32(v) => *v as i128,
+            ScanValue::U64(v) => *v as i128,
+            ScanValue::F32(_) | ScanValue::F64(_) => return None,
+        })
+    }
+
     /// Ordering against another value, comparing numerically.
+    ///
+    /// Integers are compared as `i128`, so `>` / `<` / range predicates stay
+    /// exact past 2^53. The specialized scan loop has always been exact (it
+    /// compares native types); this is the path everything *else* takes —
+    /// [`crate::scan::ResultFilter`] and the group scan's per-value check — and
+    /// it used to go through `f64` like the old scan loop did.
+    ///
+    /// A comparison mixing an integer with a float still converts to `f64`:
+    /// the two are not exactly comparable in general, and a scan never mixes
+    /// them (both sides come from the same [`ValueType`]).
     pub fn num_cmp(&self, other: &ScanValue) -> Option<Ordering> {
-        self.as_f64().partial_cmp(&other.as_f64())
+        match (self.as_i128(), other.as_i128()) {
+            (Some(a), Some(b)) => Some(a.cmp(&b)),
+            _ => self.as_f64().partial_cmp(&other.as_f64()),
+        }
     }
 
     /// Display string for the UI / table view.

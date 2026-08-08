@@ -21,16 +21,20 @@ array, with preview, count cap, and undo. Remaining niceties:
   address space by rows, so navigation is no longer page-bound; what remains
   is making the *number of visible rows* follow the window height.
 
-## Pointer scanning — revalidate across restarts
+## Pointer scanning — shipped, with one piece left
 
-The multi-level pointer scanner (`pointer.rs`) already finds paths; the missing
-half is Cheat Engine's *rescan* workflow that distils them down to stable ones.
+The scanner finds paths (`pointer.rs`) and **0.21.0 added the revalidation
+workflow**: candidates open in a window, each restart drops the ones that no
+longer reach the value's new address, and a survivor becomes the entry's
+locator. Remaining:
 
-- Revalidate a saved pointer-path list against a freshly restarted process:
-  keep only the paths that still resolve to the target, drop the rest. Repeat
-  across a few restarts until a handful of trustworthy paths remain.
-- Pure `gamegene-core` logic over the `MemorySource` trait — testable against
-  the mock, low risk. Good next-version candidate.
+- **Run the scan on a background thread.** It is still synchronous, so a large
+  target freezes the UI with no progress and no cancel — more visible now that
+  pinning opens a window instead of finishing silently. The `ScanJob` /
+  `ScanControl` machinery the value and group scans use applies directly.
+- Persist a candidate list between sessions, so narrowing can span days rather
+  than one sitting. Needs a decision on where it lives: a cheat table records
+  *findings*, and a list that has not survived a restart yet is not one.
 
 ## Name the fields — Mono metadata dissection
 
@@ -196,8 +200,6 @@ save editor that knows any particular game.
   large targets.
 - macOS backend (`mach_vm_read_overwrite` / `mach_vm_write`) behind the
   existing `MemorySource` trait.
-- Compare integers in their native type rather than via `f64` (removes the
-  precision caveat for 64-bit magnitudes above 2^53).
 
 ## Branding
 

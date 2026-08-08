@@ -11,7 +11,7 @@
 //! the storage location lands inside a module (a static anchor). Every emitted
 //! chain is validated by actually resolving it, so results are never bogus.
 
-use crate::constants::{POINTER_SIZE, SCAN_CHUNK_SIZE};
+use crate::constants::{MAX_POINTER_RECORDS, POINTER_SIZE, SCAN_CHUNK_SIZE};
 use crate::process::{MemorySource, ModuleInfo};
 use crate::table::Locator;
 use std::collections::HashSet;
@@ -46,13 +46,28 @@ pub fn pointer_scan(
     target: u64,
     opts: PointerScanOptions,
 ) -> Vec<Locator> {
+    pointer_scan_with(source, target, opts).0
+}
+
+/// [`pointer_scan`], also reporting whether the pointer collection hit
+/// [`MAX_POINTER_RECORDS`].
+///
+/// A truncated collection can miss the chain entirely — the records kept are
+/// the ones found first, not the ones that matter — so "no path found" and "no
+/// path found in the part we could hold" are different answers and the caller
+/// should be able to tell the user which it got.
+pub fn pointer_scan_with(
+    source: &dyn MemorySource,
+    target: u64,
+    opts: PointerScanOptions,
+) -> (Vec<Locator>, bool) {
     let modules = source.modules();
     if modules.is_empty() {
-        return Vec::new();
+        return (Vec::new(), false);
     }
-    let records = collect_pointers(source);
+    let (records, truncated) = collect_pointers(source);
     if records.is_empty() {
-        return Vec::new();
+        return (Vec::new(), truncated);
     }
 
     let mut ctx = Ctx {
@@ -66,7 +81,7 @@ pub fn pointer_scan(
     };
     let mut offsets = Vec::new();
     ctx.search(target, &mut offsets, 0);
-    ctx.results
+    (ctx.results, truncated)
 }
 
 /// Keep the paths that still resolve to `target`, dropping the rest.
@@ -143,7 +158,10 @@ impl Ctx<'_> {
 
 /// Collect every 8-byte-aligned value that looks like a pointer into mapped
 /// memory, as `(value, location)`, sorted by value for range queries.
-fn collect_pointers(source: &dyn MemorySource) -> Vec<(u64, u64)> {
+///
+/// Stops at [`MAX_POINTER_RECORDS`] and says so, rather than growing until the
+/// process runs out of memory.
+fn collect_pointers(source: &dyn MemorySource) -> (Vec<(u64, u64)>, bool) {
     let regions = source.regions();
     let mut ranges: Vec<(u64, u64)> = regions
         .iter()
@@ -185,6 +203,10 @@ fn collect_pointers(source: &dyn MemorySource) -> Vec<(u64, u64)> {
                 );
                 if is_mapped(value) {
                     records.push((value, read_addr + i as u64));
+                    if records.len() >= MAX_POINTER_RECORDS {
+                        records.sort_by_key(|(v, _)| *v);
+                        return (records, true);
+                    }
                 }
                 i += POINTER_SIZE;
             }
@@ -192,5 +214,5 @@ fn collect_pointers(source: &dyn MemorySource) -> Vec<(u64, u64)> {
         }
     }
     records.sort_by_key(|(v, _)| *v);
-    records
+    (records, false)
 }

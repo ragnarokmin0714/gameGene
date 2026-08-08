@@ -9,12 +9,12 @@ use gamegene_core::find::{
 };
 use gamegene_core::group::{GroupHit, GroupQuery};
 use gamegene_core::hexview::{ascii_char, focus_on, interpret, selected_offset};
-use gamegene_core::pointer::{pointer_scan, revalidate, PointerScanOptions};
+use gamegene_core::pointer::{pointer_scan_with, revalidate, PointerScanOptions};
 use gamegene_core::scan::{Compare, ResultFilter, ScanSession};
 use gamegene_core::structure::{dissect, infer_fields, Field, StrideOptions};
 use gamegene_core::table::{CheatTable, Locator, TableEntry};
 use gamegene_core::value::{ScanValue, ValueType};
-use gamegene_core::MemorySource;
+use gamegene_core::{read_prefix, MemorySource};
 use gamegene_platform::{attach, foreground_process, list_processes, ProcessInfo, BACKEND_NAME};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -597,25 +597,12 @@ const DETAIL_CHARS: usize = 1024;
 /// them, so a few KB either side is where the value almost always is.
 const FIND_RANGE_HALF: u64 = 2048;
 
-/// Read up to `want` bytes at `addr` for a preview, halving on failure.
-///
-/// A hit near the end of a region cannot serve a full window, and
-/// `ReadProcessMemory` fails atomically rather than returning a short read — so
-/// asking for less is the only way to see the bytes that *are* there. Returns
-/// empty only when even a single byte is unreadable.
+/// Read up to `want` bytes at `addr` for a preview.
 fn read_context(src: &dyn MemorySource, addr: u64, want: usize) -> Vec<u8> {
-    let mut want = want;
-    while want > 0 {
-        let mut buf = vec![0u8; want];
-        if let Ok(n) = src.read(addr, &mut buf) {
-            if n > 0 {
-                buf.truncate(n);
-                return buf;
-            }
-        }
-        want /= 2;
-    }
-    Vec::new()
+    let mut buf = vec![0u8; want];
+    let got = read_prefix(src, addr, &mut buf);
+    buf.truncate(got);
+    buf
 }
 
 /// Read as much of the slot at `addr` as is readable, up to the widest value

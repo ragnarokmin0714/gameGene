@@ -45,6 +45,15 @@ pub const MAX_SCAN_MATCHES: usize = 10_000_000;
 /// on an aligned slot, making parallel results identical to serial.
 pub const SCAN_WORK_ITEM: u64 = 16 * 1024 * 1024;
 
+/// Upper bound on the pointer-looking values one pointer scan will hold.
+///
+/// The scanner records every 8-byte-aligned value that points into mapped
+/// memory, at 16 bytes per record. A multi-GB game with a dense managed heap
+/// yields tens of millions of them, so without a cap the scan can consume
+/// hundreds of megabytes before it starts searching — the same failure the
+/// value scanner has [`MAX_SCAN_MATCHES`] for. 8M records is ~128 MB.
+pub const MAX_POINTER_RECORDS: usize = 8_000_000;
+
 /// How often (milliseconds) frozen table entries are re-written to memory.
 pub const FREEZE_INTERVAL_MS: u64 = 100;
 

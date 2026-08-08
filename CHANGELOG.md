@@ -7,6 +7,31 @@ breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+- **Ordering is exact for every integer now, not just in the scan loop.**
+  0.14.0 made the specialized scan comparisons native, and the changelog said
+  64-bit ordering was exact past 2^53 — but `ScanValue::num_cmp` still went
+  through `f64`, and that is the path the result filter and the group scan's
+  per-value check take. `>` / `<` / range predicates on `i64`/`u64` magnitudes
+  above 2^53 compared two distinct values as equal. Integers now compare as
+  `i128`; only a mixed integer/float comparison converts. (The roadmap still
+  listed this as outstanding while the changelog claimed it was done — the
+  roadmap was right.)
+- **A read at a region edge returns what is there instead of nothing.**
+  `ReadProcessMemory` fails atomically, so a fixed-size window read near the
+  end of a region returned zero bytes rather than the ones that exist: the
+  memory viewer showed a whole page as unreadable when scrolled to an edge,
+  and structure dissection gave up entirely. A shared `read_prefix` in
+  `gamegene-core` now reads forward a page at a time and returns the longest
+  readable prefix; three call sites had each solved this separately.
+
+### Changed
+- **The pointer scan stops collecting at 8M pointer records** instead of
+  growing until memory runs out — a multi-GB game with a dense managed heap
+  can yield tens of millions, at 16 bytes each. Hitting the limit is reported,
+  because "no path found" and "no path found in the part we could hold" are
+  different answers.
+
 ## [0.21.0] - 2026-08-08
 
 ### Added

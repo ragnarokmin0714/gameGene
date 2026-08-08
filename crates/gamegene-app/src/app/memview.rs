@@ -131,11 +131,14 @@ impl GameGeneApp {
                 }
 
                 // Windowed read: only the visible 256 bytes, so this is cheap.
+                // Best-effort, because the grid can be scrolled to a region
+                // edge, where a single 256-byte read returns nothing at all and
+                // the whole page would show as unreadable.
                 let mut buf = [0u8; 256];
                 let got = self
                     .source
                     .as_deref()
-                    .map(|s| s.read(self.hex_addr, &mut buf).unwrap_or(0))
+                    .map(|s| read_prefix(s, self.hex_addr, &mut buf))
                     .unwrap_or(0);
 
                 // Fixed address bar; the body below scrolls independently. It

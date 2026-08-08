@@ -65,3 +65,66 @@ pub trait MemorySource: Send + Sync {
         Vec::new()
     }
 }
+
+/// One OS page. Reads are cut at page boundaries so an unreadable page costs a
+/// page rather than the whole request.
+const PAGE: u64 = 4096;
+
+/// Fill as much of `buf` as the source will give, starting at `addr`, and return
+/// how many leading bytes were filled.
+///
+/// `ReadProcessMemory` fails **atomically**: ask for 256 bytes 200 bytes before
+/// the end of a region and it returns nothing at all, not the 200 that are
+/// there. A single call is therefore the wrong shape for anything reading a
+/// fixed-size window at a user-chosen address — the memory viewer showed a whole
+/// page as unreadable at a region edge, and structure dissection gave up
+/// entirely. Reading forward a page at a time and stopping at the first failure
+/// yields the longest readable prefix instead.
+///
+/// Bytes past the returned length are left untouched, so callers must not read
+/// them.
+pub fn read_prefix(src: &dyn MemorySource, addr: u64, buf: &mut [u8]) -> usize {
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        let at = addr.saturating_add(filled as u64);
+        // Stop at the next page boundary, so a bad page cannot poison a read
+        // that would otherwise have succeeded.
+        let to_page = PAGE - (at % PAGE);
+        let want = to_page.min((buf.len() - filled) as u64) as usize;
+        match src.read(at, &mut buf[filled..filled + want]) {
+            Ok(got) if got > 0 => {
+                filled += got;
+                if got < want {
+                    break; // short read: a gap starts here
+                }
+            }
+            _ => break,
+        }
+    }
+    filled
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::MockMemory;
+
+    #[test]
+    fn read_prefix_returns_the_readable_part_at_a_region_edge() {
+        // A 100-byte region: asking for 256 must yield the 100 that exist.
+        let base = 0x10_000u64;
+        let mem = MockMemory::new(base, 100);
+        mem.poke(base + 96, &[1, 2, 3, 4]);
+        let mut buf = [0u8; 256];
+        let n = read_prefix(&mem, base, &mut buf);
+        assert_eq!(n, 100);
+        assert_eq!(&buf[96..100], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn read_prefix_of_an_unreadable_address_is_empty() {
+        let mem = MockMemory::new(0x10_000, 64);
+        let mut buf = [0u8; 16];
+        assert_eq!(read_prefix(&mem, 0x1_000, &mut buf), 0);
+    }
+}

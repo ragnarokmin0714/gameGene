@@ -12,7 +12,7 @@
 //! the alignment, so the true period is peaky while multiples are not. This is
 //! a starting guess, not ground truth; the stride is always user-adjustable.
 
-use crate::process::MemorySource;
+use crate::process::{read_prefix, MemorySource};
 use crate::value::ValueType;
 
 /// Tunables for [`detect_stride_in`] / [`dissect`].
@@ -145,7 +145,9 @@ pub fn infer_fields(buf: &[u8], stride: usize, records: usize) -> Vec<Field> {
 /// Read a window at `base`, detect the stride, and infer the record's fields.
 pub fn dissect(src: &dyn MemorySource, base: u64, opts: StrideOptions) -> Option<Dissection> {
     let mut buf = vec![0u8; opts.window];
-    let got = src.read(base, &mut buf).ok()?;
+    // Best-effort: a record array near the end of a region still dissects from
+    // however much of the window is readable.
+    let got = read_prefix(src, base, &mut buf);
     buf.truncate(got);
     let stride = detect_stride_in(&buf, opts)?;
     let records = buf.len() / stride;

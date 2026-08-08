@@ -24,7 +24,7 @@ pub use fill::{plan_fixed, plan_increment, MAX_FILL};
 pub use find::{find_pattern, parse_aob, text_pattern, Pattern, TextEncoding};
 pub use group::group_scan;
 pub use pointer::{pointer_scan, PointerScanOptions};
-pub use process::{MemoryRegion, MemorySource, ModuleInfo};
+pub use process::{read_prefix, MemoryRegion, MemorySource, ModuleInfo};
 pub use scan::{Compare, Match, ResultFilter, ScanControl, ScanSession};
 pub use structure::{detect_stride_in, dissect, Dissection, Field, StrideOptions};
 pub use table::{table_file_stem, CheatTable, Locator, TableEntry};

@@ -902,6 +902,31 @@ mod tests {
         }
     }
 
+    /// The two predicates outside the specialized scan loop that consume
+    /// `num_cmp` — the result filter and (via `GroupQuery`) the group scan —
+    /// never got 0.14.0's native-comparison fix, so assert exactness here.
+    #[test]
+    fn range_predicates_separate_integers_f64_would_merge() {
+        // 2^53 and 2^53+1 are the same f64.
+        let lo = 1i64 << 53;
+        let hi = lo + 1;
+        assert_eq!(lo as f64, hi as f64);
+
+        let base = 0x60_000u64;
+        let mem = MockMemory::new(base, 256);
+        mem.poke(base, &lo.to_le_bytes());
+        mem.poke(base + 8, &hi.to_le_bytes());
+        let session = ScanSession::first_scan(&mem, ValueType::I64, Compare::Unknown).unwrap();
+
+        let f = ResultFilter {
+            value: Some(Compare::GreaterThan(ScanValue::I64(lo))),
+            ..Default::default()
+        };
+        let (kept, total) = session.filtered_matches(&f);
+        assert_eq!(total, 1, "only the larger of the two may pass");
+        assert_eq!(kept[0].address, base + 8);
+    }
+
     /// A result filter narrows the *view*, and does so before the display cap
     /// so it can reach candidates the unfiltered list would never show.
     #[test]
