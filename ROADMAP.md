@@ -186,18 +186,22 @@ save editor that knows any particular game.
   profile that no amount of explaining will talk an antivirus out of. The
   limitation is the point, not an obstacle to route around.
 - Descriptions / comments on cheat-table entries so a saved table is
-  self-documenting.
+  self-documenting. **Smaller than it looks: `TableEntry.notes` already exists
+  and is serialized — only the UI to edit and show it is missing.**
 
 ## Performance
 
-- Parallelize the first scan across regions (rayon) and vectorize the compare
-  loop (SIMD) — the single-threaded hot loop is the main remaining speed win.
-- Retry unreadable reads at page granularity instead of skipping a whole chunk.
+- **Vectorize the compare loop (SIMD).** The scan is already parallel across
+  cores (`parallel_collect`, 0.14.0) and monomorphized per value type, so the
+  remaining win is per-core throughput. The byte/text finder already gets this
+  from `memchr`; the value scan does not.
+- **Page-granular retry in the *scan* loop.** `read_prefix` (0.21.1) fixed the
+  windowed readers and `find_near` (0.18.0) the group rescan, but
+  `parallel_collect` still skips a whole 4 MiB chunk when a read fails, so a
+  single bad page can cost every candidate behind it.
 
 ## Platform / robustness
 
-- Run the pointer scan on a background thread so the UI does not freeze on
-  large targets.
 - macOS backend (`mach_vm_read_overwrite` / `mach_vm_write`) behind the
   existing `MemorySource` trait.
 
