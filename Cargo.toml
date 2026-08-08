@@ -18,6 +18,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
+[profile.dev]
+# Full debug symbols are the bulk of `target/debug`, and this project debugs by
+# tests and log lines rather than a stepping debugger — so keep the line numbers
+# that make a panic readable and drop the type information nobody here reads.
+# A version bump changes crate metadata, which makes every artifact new while
+# cargo never collects the old ones; five releases in a week grew target/ past
+# 7 GB and the linker ran out of space mid-`cargo test`.
+debug = "line-tables-only"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
