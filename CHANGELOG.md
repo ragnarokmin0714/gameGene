@@ -7,6 +7,8 @@ breaking changes).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-08
+
 ### Added
 - **Pointer paths can be narrowed across restarts.** Pinning a table entry used
   to run a pointer scan and silently adopt the first path it found. One scan
